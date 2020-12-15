@@ -1,0 +1,46 @@
+/**
+ * These arguments were used when this file was generated. They will be automatically applied on subsequent loads
+ * via the GUI or CLI. Run CLI with '--help' for additional information on how to override these arguments.
+ * @cliArgs --board "/ti/boards/CC2652RB_LAUNCHXL" --product "simplelink_cc13x2_26x2_sdk@4.30.00.54"
+ * @versions {"data":"2020090214","timestamp":"2020090214","tool":"1.6.0+1543","templates":"2020090214"}
+ */
+
+/**
+ * Import the modules used in this configuration.
+ */
+const CCFG = scripting.addModule("/ti/devices/CCFG");
+const PIN  = scripting.addModule("/ti/drivers/PIN");
+const PIN1 = PIN.addInstance();
+const PIN2 = PIN.addInstance();
+const PIN3 = PIN.addInstance();
+const PIN4 = PIN.addInstance();
+const RTOS = scripting.addModule("/ti/drivers/RTOS");
+
+/**
+ * Write custom configuration values to the imported modules.
+ */
+CCFG.enableDCDC         = false;
+CCFG.srcClkLF           = "LF RCOSC";
+CCFG.ccfgTemplate.$name = "ti_devices_CCFGTemplate0";
+
+PIN1.$hardware = system.deviceData.board.components["BTN-1"];
+PIN1.$name     = "CONFIG_PIN_BUTTON_0";
+
+PIN2.$hardware = system.deviceData.board.components["BTN-2"];
+PIN2.$name     = "CONFIG_PIN_BUTTON_1";
+
+PIN3.$hardware = system.deviceData.board.components.LED_RED;
+PIN3.$name     = "CONFIG_PIN_LED_0";
+
+PIN4.$hardware = system.deviceData.board.components.LED_GREEN;
+PIN4.$name     = "CONFIG_PIN_LED_1";
+
+/**
+ * Pinmux solution for unlocked pins/peripherals. This ensures that minor changes to the automatic solver in a future
+ * version of the tool will not impact the pinmux you originally saw.  These lines can be completely deleted in order to
+ * re-solve from scratch.
+ */
+PIN1.pinPin.$suggestSolution = "boosterpack.13";
+PIN2.pinPin.$suggestSolution = "boosterpack.12";
+PIN3.pinPin.$suggestSolution = "boosterpack.39";
+PIN4.pinPin.$suggestSolution = "boosterpack.40";
