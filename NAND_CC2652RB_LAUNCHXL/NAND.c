@@ -9,7 +9,7 @@
 // CMSIS Math
 #include "arm_math.h"
 #include "arm_const_structs.h"
-#define FFT_SAMPLES 1024
+#define FFT_SAMPLES 1024*2
 #define FFT_SAMPLES_HALF (FFT_SAMPLES / 2)
 #define BLOCK_SIZE 32;
 
@@ -31,10 +31,7 @@ static float32_t m_biquad_coeffs[5 * IIR_NUMSTAGES] = { 1.0000000000f,
 		-0.9797267211f };
 arm_biquad_cascade_df2T_instance_f32 const filtInst = {
 IIR_ORDER / 2, m_biquad_state, m_biquad_coeffs };
-static uint32_t filtBlockSize = BLOCK_SIZE
-;
-static uint32_t filtNumBlocks = FFT_SAMPLES / BLOCK_SIZE
-;
+
 // FILTER END
 
 uint32_t fftSize = FFT_SAMPLES;
@@ -74,9 +71,6 @@ uint32_t i, iErr;
 void* mainThread(void *arg0) {
 	/* Call driver init functions */
 	uint32_t time;
-	float32_t *inputF32, *outputF32;
-	inputF32 = &inputSignal[0];
-	outputF32 = &filtSignal[0];
 
 	GPIO_init();
 	SPI_init();
@@ -95,25 +89,15 @@ void* mainThread(void *arg0) {
 	while (1) {
 		GPIO_toggle(LED_0);
 
-		time = Clock_getTicks();
-		// FILTER
-		for (i = 0; i < filtNumBlocks; i++) {
-			arm_biquad_cascade_df2T_f32(&filtInst,
-					inputF32 + (i * filtBlockSize),
-					outputF32 + (i * filtBlockSize), filtBlockSize);
-		}
-		time = Clock_getTicks() - time;
-//
-		time = Clock_getTicks();
+//		time = Clock_getTicks();
 		// FILTER
 		arm_biquad_cascade_df2T_f32(&filtInst, inputSignal, filtSignal,
-				FFT_SAMPLES);
-		time = Clock_getTicks() - time;
+		FFT_SAMPLES_HALF);
 
 		status = ARM_MATH_SUCCESS;
 		status = arm_rfft_fast_init_f32(&S, fftSize);
 		/* Process the data through the CFFT/CIFFT module */
-		arm_rfft_fast_f32(&S, inputSignal, complexFFT, ifftFlag);
+		arm_rfft_fast_f32(&S, filtSignal, complexFFT, ifftFlag);
 
 		// first entry is all real DC offset
 		DCoffset = complexFFT[0];
