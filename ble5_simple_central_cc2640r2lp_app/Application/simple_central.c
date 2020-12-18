@@ -49,6 +49,12 @@
 #define EEG_FLAG_BYTE 5
 #define EEG_DATA_BIT 7
 
+const PIN_Config pinLedConstConfig[] = {
+Board_PIN_GLED | PIN_GPIO_OUTPUT_EN | PIN_PUSHPULL | PIN_GPIO_LOW,
+PIN_TERMINATE };
+PIN_State pinLedState;
+PIN_Handle pinLedHandle;
+
 // Application events
 #define SC_EVT_KEY_CHANGE          0x01
 #define SC_EVT_SCAN_ENABLED        0x02
@@ -484,11 +490,15 @@ static void SimpleCentral_init(void) {
 	uartParams.writeDataMode = UART_DATA_BINARY;
 	uartParams.baudRate = 115200;
 
-	// Disable all items in the main menu
+// Disable all items in the main menu
 	tbm_setItemStatus(&scMenuMain, SC_ITEM_NONE, SC_ITEM_ALL);
-	// Initialize Two-button Menu
+// Initialize Two-button Menu
 	tbm_initTwoBtnMenu(dispHandle, &scMenuMain, 4, SimpleCentral_menuSwitchCb);
 	Display_printf(dispHandle, SC_ROW_SEPARATOR, 0, "====================");
+
+//	PIN_init(pinLedConstConfig);
+	pinLedHandle = PIN_open(&pinLedState, pinLedConstConfig);
+	PIN_setOutputValue(pinLedHandle, Board_PIN_GLED, Board_GPIO_LED_ON);
 }
 
 /*********************************************************************
@@ -501,10 +511,10 @@ static void SimpleCentral_init(void) {
  * @return  events not processed
  */
 static void SimpleCentral_taskFxn(uintptr_t a0, uintptr_t a1) {
-	// Initialize application
+// Initialize application
 	SimpleCentral_init();
 
-	// Application main loop
+// Application main loop
 	for (;;) {
 		uint32_t events;
 
@@ -668,6 +678,7 @@ static uint8_t SimpleCentral_processStackMsg(ICall_Hdr *pMsg) {
  */
 static void SimpleCentral_processAppMsg(scEvt_t *pMsg) {
 	bool safeToDealloc = TRUE;
+	int i;
 
 	switch (pMsg->hdr.event) {
 	case SC_EVT_KEY_CHANGE: {
@@ -703,6 +714,11 @@ static void SimpleCentral_processAppMsg(scEvt_t *pMsg) {
 		}
 		if (doStream) {
 			UART_write(uart, pAdvRpt->pData, pAdvRpt->dataLen);
+			PIN_setOutputValue(pinLedHandle, Board_PIN_GLED,
+					Board_GPIO_LED_OFF);
+			for (i = 0; i < 200; i++) {
+			}
+			PIN_setOutputValue(pinLedHandle, Board_PIN_GLED, Board_GPIO_LED_ON);
 			lastAdv = broadByte;
 			doStream = false;
 		}
@@ -1226,7 +1242,7 @@ static void SimpleCentral_processGATTMsg(gattMsgEvent_t *pMsg) {
 		}
 	} // else - in case a GATT message came after a connection has dropped, ignore it.
 
-	// Needed only for ATT Protocol messages
+// Needed only for ATT Protocol messages
 	GATT_bm_free(&pMsg->msg, pMsg->method);
 }
 
@@ -1271,15 +1287,15 @@ static void SimpleCentral_processCmdCompleteEvt(hciEvt_CmdComplete_t *pMsg) {
 static status_t SimpleCentral_StartRssi(void) {
 	uint8_t connIndex = SimpleCentral_getConnIndex(scConnHandle);
 
-	// connIndex cannot be equal to or greater than MAX_NUM_BLE_CONNS
+// connIndex cannot be equal to or greater than MAX_NUM_BLE_CONNS
 	SIMPLECENTRAL_ASSERT(connIndex < MAX_NUM_BLE_CONNS);
 
-	// If already running
+// If already running
 	if (connList[connIndex].pRssiClock != NULL) {
 		return bleIncorrectMode;
 	}
 
-	// Create a clock object and start
+// Create a clock object and start
 	connList[connIndex].pRssiClock = (Clock_Struct*) ICall_malloc(
 			sizeof(Clock_Struct));
 
@@ -1308,21 +1324,21 @@ static status_t SimpleCentral_StartRssi(void) {
 static status_t SimpleCentral_CancelRssi(uint16_t connHandle) {
 	uint8_t connIndex = SimpleCentral_getConnIndex(connHandle);
 
-	// connIndex cannot be equal to or greater than MAX_NUM_BLE_CONNS
+// connIndex cannot be equal to or greater than MAX_NUM_BLE_CONNS
 	SIMPLECENTRAL_ASSERT(connIndex < MAX_NUM_BLE_CONNS);
 
-	// If already running
+// If already running
 	if (connList[connIndex].pRssiClock == NULL) {
 		return bleIncorrectMode;
 	}
 
-	// Stop timer
+// Stop timer
 	Util_stopClock(connList[connIndex].pRssiClock);
 
-	// Destroy the clock object
+// Destroy the clock object
 	Clock_destruct(connList[connIndex].pRssiClock);
 
-	// Free clock struct
+// Free clock struct
 	ICall_free(connList[connIndex].pRssiClock);
 	connList[connIndex].pRssiClock = NULL;
 
@@ -1400,13 +1416,13 @@ static void SimpleCentral_processPairState(uint8_t state,
  * @return  none
  */
 static void SimpleCentral_processPasscode(scPasscodeData_t *pData) {
-	// Display passcode to user
+// Display passcode to user
 	if (pData->uiOutputs != 0) {
 		Display_printf(dispHandle, SC_ROW_CUR_CONN, 0, "Passcode: %d",
 		B_APP_DEFAULT_PASSCODE);
 	}
 
-	// Send passcode response
+// Send passcode response
 	GAPBondMgr_PasscodeRsp(pData->connHandle, SUCCESS, B_APP_DEFAULT_PASSCODE);
 }
 
@@ -1420,16 +1436,16 @@ static void SimpleCentral_processPasscode(scPasscodeData_t *pData) {
 static void SimpleCentral_startSvcDiscovery(void) {
 	attExchangeMTUReq_t req;
 
-	// Initialize cached handles
+// Initialize cached handles
 	svcStartHdl = svcEndHdl = 0;
 
 	discState = BLE_DISC_STATE_MTU;
 
-	// Discover GATT Server's Rx MTU size
+// Discover GATT Server's Rx MTU size
 	req.clientRxMTU = scMaxPduSize - L2CAP_HDR_SIZE;
 
-	// ATT MTU size should be set to the minimum of the Client Rx MTU
-	// and Server Rx MTU values
+// ATT MTU size should be set to the minimum of the Client Rx MTU
+// and Server Rx MTU values
 	VOID GATT_ExchangeMTU(scConnHandle, &req, selfEntity);
 }
 
@@ -1702,7 +1718,7 @@ static void SimpleCentral_pairStateCb(uint16_t connHandle, uint8_t state,
 		uint8_t status) {
 	scPairStateData_t *pData;
 
-	// Allocate space for the event data.
+// Allocate space for the event data.
 	if ((pData = ICall_malloc(sizeof(scPairStateData_t)))) {
 		pData->connHandle = connHandle;
 		pData->status = status;
@@ -1736,7 +1752,7 @@ static void SimpleCentral_passcodeCb(uint8_t *deviceAddr, uint16_t connHandle,
 		uint8_t uiInputs, uint8_t uiOutputs, uint32_t numComparison) {
 	scPasscodeData_t *pData = ICall_malloc(sizeof(scPasscodeData_t));
 
-	// Allocate space for the passcode event.
+// Allocate space for the passcode event.
 	if (pData) {
 		pData->connHandle = connHandle;
 		memcpy(pData->deviceAddr, deviceAddr, B_ADDR_LEN);
@@ -1810,7 +1826,7 @@ static status_t SimpleCentral_enqueueMsg(uint8_t event, uint8_t state,
 	uint8_t success;
 	scEvt_t *pMsg = ICall_malloc(sizeof(scEvt_t));
 
-	// Create dynamic pointer to message.
+// Create dynamic pointer to message.
 	if (pMsg) {
 		pMsg->hdr.event = event;
 		pMsg->hdr.state = state;
@@ -1876,7 +1892,7 @@ bool SimpleCentral_doSetScanPhy(uint8_t index) {
 		temp8 = SCAN_PRIM_PHY_CODED;
 	}
 
-	// Set scanning primary PHY
+// Set scanning primary PHY
 	GapScan_setParam(SCAN_PARAM_PRIM_PHYS, &temp8);
 
 	Display_printf(dispHandle, SC_ROW_NON_CONN, 0, "Primary Scan PHY: %s",
@@ -1908,12 +1924,12 @@ bool SimpleCentral_doDiscoverDevices(uint8_t index) {
 	numScanRes = 0;
 	GapScan_enable(0, DEFAULT_SCAN_DURATION, 0);
 #else // !DEFAULT_DEV_DISC_BY_SVC_UUID
-	// Scanning for DEFAULT_SCAN_DURATION x 10 ms.
-	// Let the stack record the advertising reports as many as up to DEFAULT_MAX_SCAN_RES.
+// Scanning for DEFAULT_SCAN_DURATION x 10 ms.
+// Let the stack record the advertising reports as many as up to DEFAULT_MAX_SCAN_RES.
 	GapScan_enable(0, DEFAULT_SCAN_DURATION, DEFAULT_MAX_SCAN_RES);
 #endif // DEFAULT_DEV_DISC_BY_SVC_UUID
 
-	// Enable only "Stop Discovering" and disable all others in the main menu
+// Enable only "Stop Discovering" and disable all others in the main menu
 	tbm_setItemStatus(&scMenuMain, SC_ITEM_STOPDISC,
 			(SC_ITEM_ALL & ~SC_ITEM_STOPDISC));
 
@@ -1959,7 +1975,7 @@ bool SimpleCentral_doConnect(uint8_t index) {
 			DEFAULT_INIT_PHY, 0);
 #endif // DEFAULT_DEV_DISC_BY_SVC_UUID
 
-	// Enable only "Cancel Connecting" and disable all others in the main menu
+// Enable only "Cancel Connecting" and disable all others in the main menu
 	tbm_setItemStatus(&scMenuMain, SC_ITEM_CANCELCONN,
 			(SC_ITEM_ALL & ~SC_ITEM_CANCELCONN));
 
@@ -1999,7 +2015,7 @@ bool SimpleCentral_doCancelConnecting(uint8_t index) {
 bool SimpleCentral_doSelectConn(uint8_t index) {
 	uint32_t itemsToDisable = SC_ITEM_NONE;
 
-	// index cannot be equal to or greater than MAX_NUM_BLE_CONNS
+// index cannot be equal to or greater than MAX_NUM_BLE_CONNS
 	SIMPLECENTRAL_ASSERT(index < MAX_NUM_BLE_CONNS);
 
 	scConnHandle = connList[index].connHandle;
@@ -2012,11 +2028,11 @@ bool SimpleCentral_doSelectConn(uint8_t index) {
 		itemsToDisable = SC_ITEM_GATTREAD | SC_ITEM_GATTWRITE;
 	}
 
-	// Set the menu title and go to this connection's context
+// Set the menu title and go to this connection's context
 	TBM_SET_TITLE(&scMenuPerConn,
 			TBM_GET_ACTION_DESC(&scMenuSelectConn, index));
 
-	// Set RSSI items properly depending on current state
+// Set RSSI items properly depending on current state
 	if (connList[index].pRssiClock == NULL) {
 		tbm_setItemStatus(&scMenuPerConn,
 		SC_ITEM_STRTRSSI, SC_ITEM_STOPRSSI | itemsToDisable);
@@ -2025,7 +2041,7 @@ bool SimpleCentral_doSelectConn(uint8_t index) {
 		SC_ITEM_STOPRSSI, SC_ITEM_STRTRSSI | itemsToDisable);
 	}
 
-	// Clear non-connection-related message
+// Clear non-connection-related message
 	Display_clearLine(dispHandle, SC_ROW_NON_CONN);
 
 	tbm_goTo(&scMenuPerConn);
@@ -2046,7 +2062,7 @@ bool SimpleCentral_doGattRead(uint8_t index) {
 	attReadReq_t req;
 	uint8_t connIndex = SimpleCentral_getConnIndex(scConnHandle);
 
-	// connIndex cannot be equal to or greater than MAX_NUM_BLE_CONNS
+// connIndex cannot be equal to or greater than MAX_NUM_BLE_CONNS
 	SIMPLECENTRAL_ASSERT(connIndex < MAX_NUM_BLE_CONNS);
 
 	req.handle = connList[connIndex].charHandle;
@@ -2067,7 +2083,7 @@ bool SimpleCentral_doGattRead(uint8_t index) {
 bool SimpleCentral_doGattWrite(uint8_t index) {
 	status_t status;
 	uint8_t charVals[4] = { 0x00, 0x55, 0xAA, 0xFF }; // Should be consistent with
-													  // those in scMenuGattWrite
+// those in scMenuGattWrite
 
 	attWriteReq_t req;
 
@@ -2181,10 +2197,10 @@ bool SimpleCentral_doSetConnPhy(uint8_t index) {
 	HCI_PHY_1_MBPS, HCI_PHY_2_MBPS, HCI_PHY_1_MBPS | HCI_PHY_2_MBPS,
 	HCI_PHY_CODED, HCI_PHY_1_MBPS | HCI_PHY_2_MBPS | HCI_PHY_CODED, };
 
-	// Set Phy Preference on the current connection. Apply the same value
-	// for RX and TX. For more information, see the LE 2M PHY section in the User's Guide:
-	// http://software-dl.ti.com/lprf/ble5stack-latest/
-	// Note PHYs are already enabled by default in build_config.opt in stack project.
+// Set Phy Preference on the current connection. Apply the same value
+// for RX and TX. For more information, see the LE 2M PHY section in the User's Guide:
+// http://software-dl.ti.com/lprf/ble5stack-latest/
+// Note PHYs are already enabled by default in build_config.opt in stack project.
 	HCI_LE_SetPhyCmd(scConnHandle, 0, phy[index], phy[index], 0);
 
 	Display_printf(dispHandle, SC_ROW_CUR_CONN, 0, "PHY preference: %s",
@@ -2222,8 +2238,8 @@ bool SimpleCentral_doDisconnect(uint8_t index) {
  */
 static void SimpleCentral_menuSwitchCb(tbmMenuObj_t *pMenuObjCurr,
 		tbmMenuObj_t *pMenuObjNext) {
-	// interested in only the events of
-	// entering scMenuConnect, scMenuSelectConn, and scMenuMain for now
+// interested in only the events of
+// entering scMenuConnect, scMenuSelectConn, and scMenuMain for now
 	if (pMenuObjNext == &scMenuConnect) {
 		uint8_t i, j;
 		uint32_t itemsToDisable = SC_ITEM_NONE;

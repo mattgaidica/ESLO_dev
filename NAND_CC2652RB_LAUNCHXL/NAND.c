@@ -9,15 +9,16 @@
 // CMSIS Math
 #include "arm_math.h"
 #include "arm_const_structs.h"
-#define FFT_SAMPLES 1024*2
-#define FFT_SAMPLES_HALF (FFT_SAMPLES / 2)
+#define FFT_SAMPLES 2048 // for complex, input signal is 512/2048 samples
+#define FFT_SAMPLES_HALF (FFT_SAMPLES / 2) // for real, imag, angle, power
+#define FFT_SAMPLES_QUARTER (FFT_SAMPLES / 4) // for filter
 #define BLOCK_SIZE 32;
 
 #include "FFTsignal.h"
 static float32_t complexFFT[FFT_SAMPLES];
-static float32_t realFFT[FFT_SAMPLES_HALF];
-static float32_t imagFFT[FFT_SAMPLES_HALF];
-static float32_t angleFFT[FFT_SAMPLES_HALF];
+//static float32_t realFFT[FFT_SAMPLES_HALF];
+//static float32_t imagFFT[FFT_SAMPLES_HALF];
+//static float32_t angleFFT[FFT_SAMPLES_HALF];
 static float32_t powerFFT[FFT_SAMPLES_HALF];
 static float32_t filtSignal[FFT_SAMPLES];
 
@@ -71,6 +72,7 @@ uint32_t i, iErr;
 void* mainThread(void *arg0) {
 	/* Call driver init functions */
 	uint32_t time;
+	float32_t phase;
 
 	GPIO_init();
 	SPI_init();
@@ -92,7 +94,7 @@ void* mainThread(void *arg0) {
 //		time = Clock_getTicks();
 		// FILTER
 		arm_biquad_cascade_df2T_f32(&filtInst, inputSignal, filtSignal,
-		FFT_SAMPLES_HALF);
+		FFT_SAMPLES_QUARTER);
 
 		status = ARM_MATH_SUCCESS;
 		status = arm_rfft_fast_init_f32(&S, fftSize);
@@ -102,15 +104,15 @@ void* mainThread(void *arg0) {
 		// first entry is all real DC offset
 		DCoffset = complexFFT[0];
 
-		//de-interleave
-		for (i = 0; i < FFT_SAMPLES_HALF; i++) {
-			realFFT[i] = complexFFT[i * 2];
-			imagFFT[i] = complexFFT[(i * 2) + 1];
-		}
-
-		for (i = 0; i < FFT_SAMPLES_HALF; i++) {
-			angleFFT[i] = atan2f(imagFFT[i], realFFT[i]);
-		}
+//		//de-interleave
+//		for (i = 0; i < FFT_SAMPLES_HALF; i++) {
+//			realFFT[i] = complexFFT[i * 2];
+//			imagFFT[i] = complexFFT[(i * 2) + 1];
+//		}
+//
+//		for (i = 0; i < FFT_SAMPLES_HALF; i++) {
+//			angleFFT[i] = atan2f(imagFFT[i], realFFT[i]);
+//		}
 
 		arm_cmplx_mag_squared_f32(complexFFT, powerFFT, FFT_SAMPLES_HALF);
 
@@ -118,6 +120,7 @@ void* mainThread(void *arg0) {
 		arm_max_f32(&powerFFT[1], FFT_SAMPLES_HALF - 1, &maxValue, &maxIndex);
 		// correct index
 		maxIndex += 1;
+		phase = atan2f(complexFFT[(maxIndex * 2) + 1], complexFFT[maxIndex * 2]); // imag,real
 
 		/*
 		 for (i = 0; i < sizeof(writeBuf); i++) {

@@ -188,14 +188,20 @@ void SimpleBroadcaster_createTask(void) {
 }
 
 void eegDataReady(uint_least8_t index) {
+	int i;
 	ADS_updateData(&status, &ch1, &ch2, &ch3, &ch4);
+	// offset from header bytes
 	advData1[(iEEG * 3) + EEG_DATA_BYTE] = ch1 >> 16;
 	advData1[(iEEG * 3) + EEG_DATA_BYTE + 1] = ch1 >> 8;
 	advData1[(iEEG * 3) + EEG_DATA_BYTE + 2] = ch1;
-	advData1[EEG_FLAG_BYTE+1] = iEEG;
+	advData1[EEG_FLAG_BYTE + 1] = iEEG;
 	iEEG++;
 	if (iEEG == EEG_N_SAMPLE) {
 		advData1[EEG_FLAG_BYTE] = eegAdvCount;
+		GPIO_toggle(LED_0);
+		for (i = 0; i < 200; i++) {
+		}
+		GPIO_toggle(LED_0);
 		if (eegAdvCount == 0xFF) {
 			eegAdvCount = 0x00;
 		} else {
