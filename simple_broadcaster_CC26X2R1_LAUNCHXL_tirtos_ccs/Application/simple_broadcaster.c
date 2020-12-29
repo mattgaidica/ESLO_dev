@@ -132,6 +132,7 @@ typedef struct {
 } sbGapAdvEventData_t;
 
 // Advertising handles
+static uint8 advHandleExtended;
 static uint8 advHandleLegacy;
 
 // Address mode
@@ -388,23 +389,46 @@ static void SimpleBroadcaster_processGapMessage(gapEventHdr_t *pMsg) {
 
 			// Create Advertisement set
 			status = GapAdv_create(&SimpleBroadcaster_advCallback, &advParams1,
-					&advHandleLegacy);
+					&advHandleExtended);
 			SIMPLEBROADCASTER_ASSERT(status == SUCCESS);
 
 			// Load advertising data
-			status = GapAdv_loadByHandle(advHandleLegacy, GAP_ADV_DATA_TYPE_ADV,
-					sizeof(advData1), advData1);
+			status = GapAdv_loadByHandle(advHandleExtended,
+					GAP_ADV_DATA_TYPE_ADV, sizeof(advData1), advData1);
 			SIMPLEBROADCASTER_ASSERT(status == SUCCESS);
 
 			// Set event mask
-			status = GapAdv_setEventMask(advHandleLegacy,
+			status = GapAdv_setEventMask(advHandleExtended,
 					GAP_ADV_EVT_MASK_START_AFTER_ENABLE
+							| GAP_ADV_EVT_MASK_SCAN_REQ_NOTI
 							| GAP_ADV_EVT_MASK_END_AFTER_DISABLE
 							| GAP_ADV_EVT_MASK_END
 							| GAP_ADV_EVT_MASK_SET_TERMINATED);
 			SIMPLEBROADCASTER_ASSERT(status == SUCCESS);
 
-			// Enable legacy advertising
+			// Enable extended advertising
+			status = GapAdv_enable(advHandleExtended,
+					GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
+			SIMPLEBROADCASTER_ASSERT(status == SUCCESS);
+
+			// Legacy adv
+			status = GapAdv_create(&SimpleBroadcaster_advCallback, &advParams2,
+					&advHandleLegacy);
+			SIMPLEBROADCASTER_ASSERT(status == SUCCESS);
+
+			status = GapAdv_loadByHandle(advHandleLegacy, GAP_ADV_DATA_TYPE_ADV,
+					sizeof(advData2), advData2);
+			SIMPLEBROADCASTER_ASSERT(status == SUCCESS);
+
+			status = GapAdv_loadByHandle(advHandleLegacy,
+					GAP_ADV_DATA_TYPE_SCAN_RSP, sizeof(scanResData2),
+					scanResData2);
+			SIMPLEBROADCASTER_ASSERT(status == SUCCESS);
+
+			status = GapAdv_setEventMask(advHandleLegacy,
+					GAP_ADV_EVT_MASK_SCAN_REQ_NOTI);
+			SIMPLEBROADCASTER_ASSERT(status == SUCCESS);
+
 			status = GapAdv_enable(advHandleLegacy,
 					GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
 			SIMPLEBROADCASTER_ASSERT(status == SUCCESS);
@@ -526,6 +550,9 @@ static bool SimpleBroadcaster_processAdvEvent(sbGapAdvEventData_t *pEventData) {
 		SIMPLEBROADCASTER_ASSERT(status == SUCCESS)
 		;
 
+		break;
+
+	case GAP_EVT_SCAN_REQ_RECEIVED :
 		break;
 
 	case GAP_EVT_INSUFFICIENT_MEMORY :
