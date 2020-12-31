@@ -8,6 +8,55 @@
    </void>
   </object>
   <void method="setProperty">
+   <string>p.sa.uc.helper</string>
+   <object class="com.ti.dvt.analysis.suite.usecasehelpers.SystemAnalyzerUseCaseHelper">
+    <void method="initialize">
+     <object class="com.ti.dvt.analysis.suite.usecasehelpers.SAUCHSaveRestore">
+      <void property="UCFeatures">
+       <string>Execution Graph,Concurrency:false,Printf Logs:false,CPU Load:false,Task Load:false,Task Profiler:false,Duration:false,Count Analysis:false,Context Aware Profile:false</string>
+      </void>
+      <void property="UCName">
+       <string>Execution</string>
+      </void>
+      <void property="absoluteDataLoss">
+       <string></string>
+      </void>
+      <void property="dataLossDetails">
+       <string></string>
+      </void>
+      <void property="programToCoresMap">
+       <object class="java.util.HashMap">
+        <void method="put">
+         <string>ADS129X_CC2652RB_LAUNCHXL_tirtos_ccs</string>
+         <object class="java.util.ArrayList">
+          <void method="add">
+           <string>Cortex_M4_0</string>
+          </void>
+         </object>
+        </void>
+       </object>
+      </void>
+      <void property="programToIsprojectMap">
+       <object class="java.util.HashMap">
+        <void method="put">
+         <string>ADS129X_CC2652RB_LAUNCHXL_tirtos_ccs</string>
+         <boolean>true</boolean>
+        </void>
+       </object>
+      </void>
+      <void property="programToimageMap">
+       <object class="java.util.HashMap">
+        <void method="put">
+         <string>ADS129X_CC2652RB_LAUNCHXL_tirtos_ccs</string>
+         <string>/Users/matt/ti/workspaces/ESLO_dev/ADS129X_CC2652RB_LAUNCHXL_tirtos_ccs/Debug/ADS129X_CC2652RB_LAUNCHXL_tirtos_ccs.out</string>
+        </void>
+       </object>
+      </void>
+     </object>
+    </void>
+   </object>
+  </void>
+  <void method="setProperty">
    <string>p.m.state</string>
    <object class="com.ti.dvt.uia.utils.PersistState">
     <void property="analysisTable">
@@ -75,8 +124,11 @@
           <void method="put">
            <string>Instrumentation Status</string>
            <object class="com.ti.dvt.control.engine.types.ConfigLabel">
+            <void property="colour">
+             <string>DARK_GREEN</string>
+            </void>
             <void property="text">
-             <string></string>
+             <string>Good</string>
             </void>
            </object>
           </void>
@@ -84,10 +136,10 @@
            <string>Which Cores</string>
            <object class="java.util.Vector">
             <void method="add">
-             <string>ALL</string>
+             <string>Cortex_M4_0</string>
             </void>
             <void method="add">
-             <string>ALL</string>
+             <string>Cortex_M4_0</string>
             </void>
            </object>
           </void>
@@ -151,10 +203,10 @@
            <string>Which Cores</string>
            <object class="java.util.Vector">
             <void method="add">
-             <string>ALL</string>
+             <string>Cortex_M4_0</string>
             </void>
             <void method="add">
-             <string>ALL</string>
+             <string>Cortex_M4_0</string>
             </void>
            </object>
           </void>
@@ -222,10 +274,10 @@
            <string>Which Cores</string>
            <object class="java.util.Vector">
             <void method="add">
-             <string>ALL</string>
+             <string>Cortex_M4_0</string>
             </void>
             <void method="add">
-             <string>ALL</string>
+             <string>Cortex_M4_0</string>
             </void>
            </object>
           </void>
@@ -289,10 +341,10 @@
            <string>Which Cores</string>
            <object class="java.util.Vector">
             <void method="add">
-             <string>ALL</string>
+             <string>Cortex_M4_0</string>
             </void>
             <void method="add">
-             <string>ALL</string>
+             <string>Cortex_M4_0</string>
             </void>
            </object>
           </void>
@@ -364,7 +416,10 @@
            <string>Which Cores</string>
            <object class="java.util.Vector">
             <void method="add">
-             <string></string>
+             <string>Cortex_M4_0</string>
+            </void>
+            <void method="add">
+             <string>Cortex_M4_0</string>
             </void>
            </object>
           </void>
@@ -436,10 +491,10 @@
            <string>Which Cores</string>
            <object class="java.util.Vector">
             <void method="add">
-             <string>ALL</string>
+             <string>Cortex_M4_0</string>
             </void>
             <void method="add">
-             <string>ALL</string>
+             <string>Cortex_M4_0</string>
             </void>
            </object>
           </void>
@@ -503,10 +558,10 @@
            <string>Which Cores</string>
            <object class="java.util.Vector">
             <void method="add">
-             <string>ALL</string>
+             <string>Cortex_M4_0</string>
             </void>
             <void method="add">
-             <string>ALL</string>
+             <string>Cortex_M4_0</string>
             </void>
            </object>
           </void>
@@ -578,10 +633,10 @@
            <string>Which Cores</string>
            <object class="java.util.Vector">
             <void method="add">
-             <string>ALL</string>
+             <string>Cortex_M4_0</string>
             </void>
             <void method="add">
-             <string>ALL</string>
+             <string>Cortex_M4_0</string>
             </void>
            </object>
           </void>
@@ -653,7 +708,10 @@
            <string>Which Cores</string>
            <object class="java.util.Vector">
             <void method="add">
-             <string></string>
+             <string>Cortex_M4_0</string>
+            </void>
+            <void method="add">
+             <string>Cortex_M4_0</string>
             </void>
            </object>
           </void>
@@ -687,38 +745,25 @@
     <void property="liveParam">
      <object class="com.ti.dvt.uia.utils.RunParam" id="RunParam0">
       <void class="com.ti.dvt.uia.utils.RunParam" method="getField">
+       <string>maxData</string>
+       <void method="set">
+        <object idref="RunParam0"/>
+        <int>10</int>
+       </void>
+      </void>
+      <void class="com.ti.dvt.uia.utils.RunParam" method="getField">
        <string>captureFilename</string>
        <void method="set">
         <object idref="RunParam0"/>
         <string>/Users/matt/ti/workspaces/ESLO_dev/dvt/systemAnalyzerData</string>
        </void>
       </void>
-     </object>
-    </void>
-   </object>
-  </void>
-  <void method="setProperty">
-   <string>p.sa.uc.helper</string>
-   <object class="com.ti.dvt.analysis.suite.usecasehelpers.SystemAnalyzerUseCaseHelper">
-    <void method="initialize">
-     <object class="com.ti.dvt.analysis.suite.usecasehelpers.SAUCHSaveRestore">
-      <void property="UCFeatures">
-       <string>Execution Graph,Concurrency:false,Printf Logs:false,CPU Load:false,Task Load:false,Task Profiler:false,Duration:false,Count Analysis:false,Context Aware Profile:false</string>
-      </void>
-      <void property="UCName">
-       <string>Execution</string>
-      </void>
-      <void property="absoluteDataLoss">
-       <string></string>
-      </void>
-      <void property="programToCoresMap">
-       <object class="java.util.HashMap"/>
-      </void>
-      <void property="programToIsprojectMap">
-       <object class="java.util.HashMap"/>
-      </void>
-      <void property="programToimageMap">
-       <object class="java.util.HashMap"/>
+      <void class="com.ti.dvt.uia.utils.RunParam" method="getField">
+       <string>clearExistingData</string>
+       <void method="set">
+        <object idref="RunParam0"/>
+        <boolean>false</boolean>
+       </void>
       </void>
      </object>
     </void>

@@ -44,7 +44,7 @@
 
 #include <ti/drivers/Board.h>
 
-extern void *mainThread(void *arg0);
+extern void* mainThread(void *arg0);
 
 /* Stack size in bytes */
 #define THREADSTACKSIZE    1024
@@ -52,35 +52,52 @@ extern void *mainThread(void *arg0);
 /*
  *  ======== main ========
  */
-int main(void)
-{
-    pthread_t           thread;
-    pthread_attr_t      attrs;
-    struct sched_param  priParam;
-    int                 retc;
+int main(void) {
+	pthread_t thread;
+	pthread_attr_t attrs;
+	struct sched_param priParam;
+	int retc;
 
-    Board_init();
+	Board_init();
 
-    /* Initialize the attributes structure with default values */
-    pthread_attr_init(&attrs);
+	/* Initialize the attributes structure with default values */
+	pthread_attr_init(&attrs);
 
-    /* Set priority, detach state, and stack size attributes */
-    priParam.sched_priority = 1;
-    retc = pthread_attr_setschedparam(&attrs, &priParam);
-    retc |= pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
-    retc |= pthread_attr_setstacksize(&attrs, THREADSTACKSIZE);
-    if (retc != 0) {
-        /* failed to set attributes */
-        while (1) {}
-    }
+	/* Set priority, detach state, and stack size attributes */
+	priParam.sched_priority = 1;
+	retc = pthread_attr_setschedparam(&attrs, &priParam);
+	retc |= pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
+	retc |= pthread_attr_setstacksize(&attrs, THREADSTACKSIZE);
+	if (retc != 0) {
+		/* failed to set attributes */
+		while (1) {
+		}
+	}
 
-    retc = pthread_create(&thread, &attrs, mainThread, NULL);
-    if (retc != 0) {
-        /* pthread_create() failed */
-        while (1) {}
-    }
+	retc = pthread_create(&thread, &attrs, mainThread, NULL);
+	if (retc != 0) {
+		/* pthread_create() failed */
+		while (1) {
+		}
+	}
 
-    BIOS_start();
+	// Create Task(s)
+	Task_Params_init(&eegTaskParams); // Init Task Params with pri=2, stackSize = 512
+	eegTaskParams.priority = 2;
+	eegTaskParams.stackSize = 512;
 
-    return (0);
+	eegTask = Task_create(eegTaskFcn, &eegTaskParams, Error_IGNORE); // Create task1 with task1Fxn (Error Block ignored, we explicitly test 'task1' handle)
+	if (eegTask == NULL) {                      // Verify that Task1 was created
+		System_abort("Task 1 create failed");            // If not abort program
+	}
+
+	// Create Semaphore(s)
+	eegSem = Semaphore_create(0, NULL, Error_IGNORE); // Create Sem, count=0, params default, Error_Block ignored
+	if (eegSem == NULL) {                        // Verify that item was created
+		System_abort("Semaphore 1 create failed");       // If not abort program
+	}
+
+	BIOS_start();
+
+	return (0);
 }

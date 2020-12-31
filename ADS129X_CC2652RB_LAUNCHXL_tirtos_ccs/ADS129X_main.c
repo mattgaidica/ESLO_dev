@@ -4,17 +4,30 @@
 #include <string.h>
 
 /* Driver Header files */
+#include <ti/drivers/Board.h>
 #include <ti/drivers/GPIO.h>
 #include <ti/drivers/SPI.h>
 #include <ti/drivers/I2C.h>
 
+#include <xdc/std.h>
+#include <xdc/runtime/Types.h>
+#include <xdc/cfg/global.h>
+#include <xdc/runtime/Error.h>
+#include <xdc/runtime/System.h>
+#include <xdc/runtime/Log.h>
+
+#include <ti/sysbios/BIOS.h>
 #include <ti/sysbios/knl/Task.h>
 #include <ti/sysbios/knl/Clock.h>
 #include <ti/sysbios/knl/Event.h>
 #include <ti/sysbios/knl/Queue.h>
+#include <ti/sysbios/knl/Semaphore.h>
 
 /* Driver configuration */
 #include "ti_drivers_config.h"
+
+/* POSIX Header files */
+#include <pthread.h>
 
 /* AXY */
 #include <lsm303agr_reg.h>
@@ -32,6 +45,8 @@ static uint8_t whoamI, rst;
 #include <ADS129X.h>
 #include <Definitions.h>
 
+uint32_t XL_TIMEOUT = 500000;
+
 int32_t status;
 int32_t ch1;
 int32_t ch2;
@@ -47,12 +62,77 @@ int32_t ch4Buf[256];
 stmdev_ctx_t dev_ctx_xl;
 stmdev_ctx_t dev_ctx_mg;
 
-void axyMagReady(uint_least8_t index) {
-//	GPIO_toggle(LED_0);
-	lsm303agr_reg_t reg;
-	lsm303agr_mag_status_get(&dev_ctx_mg, &reg.status_reg_m);
+uint32_t axyCount;
+uint32_t eegCount;
+uint32_t magCount;
 
-	if (reg.status_reg_m.zyxda) {
+/* Tasks and Semaphores */
+void eegTaskFcn(UArg a0, UArg a1);
+void xlTaskFcn(UArg a0, UArg a1);
+void mgTaskFcn(UArg a0, UArg a1);
+
+void* mainThread(void *arg0);
+
+/* Stack size in bytes */
+#define THREADSTACKSIZE    1024
+
+Task_Handle eegTask;
+Task_Params eegTaskParams;
+Semaphore_Handle eegSem;
+
+Task_Handle xlTask;
+Task_Params xlTaskParams;
+Semaphore_Handle xlSem;
+
+Task_Handle mgTask;
+Task_Params mgTaskParams;
+Semaphore_Handle mgSem;
+
+void eegTaskFcn(UArg a0, UArg a1) {
+	while (1) {
+		Semaphore_pend(eegSem, BIOS_WAIT_FOREVER); // Wait for semaphore from HWI callback function
+		ADS_updateData(&status, &ch1, &ch2, &ch3, &ch4);
+		eegCount++;
+	}
+}
+
+void xlTaskFcn(UArg a0, UArg a1) {
+	uint8_t axyStat;
+	uint8_t i;
+	while (1) {
+		// could set a timeout for ~5s for debugging, if AXY is always on
+		Semaphore_pend(xlSem, XL_TIMEOUT);
+
+		// make sure buffer is full?
+		lsm303agr_fifo_src_reg_a_t fifo_reg;
+		lsm303agr_xl_fifo_status_get(&dev_ctx_xl, &fifo_reg);
+
+		for (i = 0; i <= fifo_reg.fss; i++) {
+			memset(data_raw_acceleration.u8bit, 0x00, 3 * sizeof(int16_t));
+			lsm303agr_acceleration_raw_get(&dev_ctx_xl,
+					data_raw_acceleration.u8bit);
+			acceleration_mg[0] = lsm303agr_from_fs_2g_hr_to_mg(
+					data_raw_acceleration.i16bit[0]);
+			acceleration_mg[1] = lsm303agr_from_fs_2g_hr_to_mg(
+					data_raw_acceleration.i16bit[1]);
+			acceleration_mg[2] = lsm303agr_from_fs_2g_hr_to_mg(
+					data_raw_acceleration.i16bit[2]);
+		}
+
+		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
+		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
+
+		axyCount++;
+	}
+}
+
+void mgTaskFcn(UArg a0, UArg a1) {
+	while (1) {
+		Semaphore_pend(mgSem, BIOS_WAIT_FOREVER);
+
+//		lsm303agr_reg_t reg;
+//		lsm303agr_xl_status_get(&dev_ctx_xl, &reg.status_reg_a);
+
 		/* Read magnetic field data */
 		memset(data_raw_magnetic.u8bit, 0x00, 3 * sizeof(int16_t));
 		lsm303agr_magnetic_raw_get(&dev_ctx_mg, data_raw_magnetic.u8bit);
@@ -62,28 +142,21 @@ void axyMagReady(uint_least8_t index) {
 				data_raw_magnetic.i16bit[1]);
 		magnetic_mG[2] = lsm303agr_from_lsb_to_mgauss(
 				data_raw_magnetic.i16bit[2]);
+
+		magCount++;
 	}
-
-}
-
-void axyXlReady(uint_least8_t index) {
-	GPIO_disableInt(AXY_INT1);
-//	memset(data_raw_acceleration.u8bit, 0x00, 3 * sizeof(int16_t));
-//	lsm303agr_acceleration_raw_get(&dev_ctx_xl, data_raw_acceleration.u8bit);
-//	acceleration_mg[0] = lsm303agr_from_fs_2g_hr_to_mg(
-//			data_raw_acceleration.i16bit[0]);
-//	acceleration_mg[1] = lsm303agr_from_fs_2g_hr_to_mg(
-//			data_raw_acceleration.i16bit[1]);
-//	acceleration_mg[2] = lsm303agr_from_fs_2g_hr_to_mg(
-//			data_raw_acceleration.i16bit[2]);
-	lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
-	lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
-	GPIO_toggle(LED_0);
-	GPIO_enableInt(AXY_INT1);
 }
 
 void eegDataReady(uint_least8_t index) {
-	ADS_updateData(&status, &ch1, &ch2, &ch3, &ch4);
+	Semaphore_post(eegSem);
+}
+
+void axyXlReady(uint_least8_t index) {
+	Semaphore_post(xlSem);
+}
+
+void axyMagReady(uint_least8_t index) {
+	Semaphore_post(mgSem);
 }
 
 void ESLO_startup(void) {
@@ -109,25 +182,21 @@ void ESLO_startup(void) {
 
 	whoamI = 0;
 	lsm303agr_xl_device_id_get(&dev_ctx_xl, &whoamI);
-
-	if (whoamI != LSM303AGR_ID_XL) {
-		while (1) {
-			GPIO_toggle(LED_0);
-			Task_sleep(200000);
-			whoamI = 0;
-			lsm303agr_xl_device_id_get(&dev_ctx_xl, &whoamI);
-		}
+	while (whoamI != LSM303AGR_ID_XL) {
+		lsm303agr_xl_device_id_get(&dev_ctx_xl, &whoamI);
+		GPIO_toggle(LED_0);
+		Task_sleep(10000);
+		GPIO_toggle(LED_0);
+		Task_sleep(100000);
 	}
 
-	whoamI = 0;
-	lsm303agr_mag_device_id_get(&dev_ctx_mg, &whoamI);
-
-	if (whoamI != LSM303AGR_ID_MG) {
-		while (1) {
-			GPIO_toggle(LED_0);
-			Task_sleep(200000);
-		}
-	}
+//	whoamI = 0;
+//	lsm303agr_mag_device_id_get(&dev_ctx_mg, &whoamI);
+//
+//	if (whoamI != LSM303AGR_ID_MG) {
+//		while (1) {
+//		}
+//	}
 
 	/* Restore default configuration for magnetometer */
 	lsm303agr_mag_reset_set(&dev_ctx_mg, PROPERTY_ENABLE);
@@ -153,21 +222,29 @@ void ESLO_startup(void) {
 	lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_ENABLE);
 
 	/* Set device in continuous mode */
+	lsm303agr_xl_operating_mode_set(&dev_ctx_xl, LSM303AGR_HR_12bit);
 	lsm303agr_xl_fifo_set(&dev_ctx_xl, PROPERTY_ENABLE);
-	lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
-
 	lsm303agr_ctrl_reg3_a_t int1Val;
 	int1Val.i1_overrun = 1;
+	int1Val.i1_wtm = 0;
+	int1Val.i1_drdy2 = 0;
+	int1Val.i1_drdy1 = 0;
+	int1Val.i1_aoi2 = 0;
+	int1Val.i1_aoi1 = 0;
+	int1Val.i1_click = 0;
 	lsm303agr_xl_pin_int1_config_set(&dev_ctx_xl, &int1Val);
-	lsm303agr_xl_operating_mode_set(&dev_ctx_xl, LSM303AGR_HR_12bit);
 
 	/* Set magnetometer in continuous mode */
 	lsm303agr_mag_drdy_on_pin_set(&dev_ctx_mg, PROPERTY_ENABLE);
-	lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_CONTINUOUS_MODE);
 
-//	GPIO_enableInt(_EEG_DRDY);
-//	GPIO_enableInt(AXY_INT1);
-//	GPIO_enableInt(_AXY_MAG);
+	GPIO_enableInt(_EEG_DRDY);
+
+	lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
+	GPIO_enableInt(AXY_INT1);
+	lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
+
+	GPIO_enableInt(AXY_MAG);
+	lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_CONTINUOUS_MODE);
 }
 
 /*
@@ -176,24 +253,127 @@ void ESLO_startup(void) {
 void* mainThread(void *arg0) {
 	ESLO_startup();
 
-	while (1) {
-		GPIO_write(LED_0, GPIO_read(AXY_INT1));
+	uint8_t axyStat;
+	uint8_t magStat;
 
+	while (1) {
 //		lsm303agr_reg_t reg;
+//		lsm303agr_fifo_src_reg_a_t fifo_reg;
 //		lsm303agr_xl_status_get(&dev_ctx_xl, &reg.status_reg_a);
+//		lsm303agr_xl_fifo_status_get(&dev_ctx_xl, &fifo_reg);
+
+		axyStat = GPIO_read(AXY_INT1);
+//		magStat = GPIO_read(AXY_MAG);
+		GPIO_write(LED_0, axyStat);
+
+//		if (axyStat) {
+//			lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
+//			lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
+//		}
+
+//		if (axyStat) {
+//			GPIO_toggle(LED_0);
+//			lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
+//			lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
+//		}
 
 //		if (reg.status_reg_a.zyxda) {
-		if (GPIO_read(AXY_INT1)) {
-			/* Read accelerometer data */
-			memset(data_raw_acceleration.u8bit, 0x00, 3 * sizeof(int16_t));
-			lsm303agr_acceleration_raw_get(&dev_ctx_xl,
-					data_raw_acceleration.u8bit);
-			acceleration_mg[0] = lsm303agr_from_fs_2g_hr_to_mg(
-					data_raw_acceleration.i16bit[0]);
-			acceleration_mg[1] = lsm303agr_from_fs_2g_hr_to_mg(
-					data_raw_acceleration.i16bit[1]);
-			acceleration_mg[2] = lsm303agr_from_fs_2g_hr_to_mg(
-					data_raw_acceleration.i16bit[2]);
+//		if (GPIO_read(AXY_INT1)) {
+
+//		if (fifo_reg.ovrn_fifo) {
+//			/* Read accelerometer data */
+//			memset(data_raw_acceleration.u8bit, 0x00, 3 * sizeof(int16_t));
+//			lsm303agr_acceleration_raw_get(&dev_ctx_xl,
+//					data_raw_acceleration.u8bit);
+//			acceleration_mg[0] = lsm303agr_from_fs_2g_hr_to_mg(
+//					data_raw_acceleration.i16bit[0]);
+//			acceleration_mg[1] = lsm303agr_from_fs_2g_hr_to_mg(
+//					data_raw_acceleration.i16bit[1]);
+//			acceleration_mg[2] = lsm303agr_from_fs_2g_hr_to_mg(
+//					data_raw_acceleration.i16bit[2]);
+//			lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
+//			lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
+//		}
+	}
+}
+
+/*
+ *  ======== main ========
+ */
+int main(void) {
+	pthread_t thread;
+	pthread_attr_t attrs;
+	struct sched_param priParam;
+	int retc;
+
+	Board_init();
+
+	/* Initialize the attributes structure with default values */
+	pthread_attr_init(&attrs);
+
+	/* Set priority, detach state, and stack size attributes */
+	priParam.sched_priority = 1;
+	retc = pthread_attr_setschedparam(&attrs, &priParam);
+	retc |= pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
+	retc |= pthread_attr_setstacksize(&attrs, THREADSTACKSIZE);
+	if (retc != 0) {
+		/* failed to set attributes */
+		while (1) {
 		}
 	}
+
+	retc = pthread_create(&thread, &attrs, mainThread, NULL);
+	if (retc != 0) {
+		/* pthread_create() failed */
+		while (1) {
+		}
+	}
+
+	// Create Task(s)
+	Task_Params_init(&eegTaskParams); // Init Task Params with pri=2, stackSize = 512
+	eegTaskParams.priority = 2;
+//	eegTaskParams.stackSize = 512;
+
+	Task_Params_init(&xlTaskParams); // Init Task Params with pri=2, stackSize = 512
+	xlTaskParams.priority = 2;
+//	xlTaskParams.stackSize = 512;
+
+	Task_Params_init(&mgTaskParams); // Init Task Params with pri=2, stackSize = 512
+	mgTaskParams.priority = 2;
+//	mgTaskParams.stackSize = 512;
+
+	eegTask = Task_create(eegTaskFcn, &eegTaskParams, Error_IGNORE); // Create task1 with task1Fxn (Error Block ignored, we explicitly test 'task1' handle)
+	if (eegTask == NULL) {                      // Verify that Task1 was created
+		System_abort("Task eeg create failed");          // If not abort program
+	}
+
+	xlTask = Task_create(xlTaskFcn, &xlTaskParams, Error_IGNORE); // Create task1 with task1Fxn (Error Block ignored, we explicitly test 'task1' handle)
+	if (xlTask == NULL) {                      // Verify that Task1 was created
+		System_abort("Task xl create failed");           // If not abort program
+	}
+
+	mgTask = Task_create(mgTaskFcn, &mgTaskParams, Error_IGNORE); // Create task1 with task1Fxn (Error Block ignored, we explicitly test 'task1' handle)
+	if (mgTask == NULL) {                      // Verify that Task1 was created
+		System_abort("Task mg create failed");           // If not abort program
+	}
+
+	// Create Semaphores
+	eegSem = Semaphore_create(0, NULL, Error_IGNORE); // Create Sem, count=0, params default, Error_Block ignored
+	if (eegSem == NULL) {                        // Verify that item was created
+		System_abort("Semaphore eeg create failed");     // If not abort program
+	}
+
+	xlSem = Semaphore_create(0, NULL, Error_IGNORE); // Create Sem, count=0, params default, Error_Block ignored
+	if (xlSem == NULL) {                        // Verify that item was created
+		System_abort("Semaphore xl create failed");      // If not abort program
+	}
+
+	mgSem = Semaphore_create(0, NULL, Error_IGNORE); // Create Sem, count=0, params default, Error_Block ignored
+	if (mgSem == NULL) {                        // Verify that item was created
+		System_abort("Semaphore mg create failed");      // If not abort program
+	}
+
+	BIOS_start();
+
+	return (0);
 }
