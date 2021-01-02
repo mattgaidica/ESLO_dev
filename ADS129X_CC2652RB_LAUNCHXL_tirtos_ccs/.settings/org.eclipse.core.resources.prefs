@@ -1,8 +1,12 @@
 eclipse.preferences.version=1
 encoding//Debug/ADS129X/subdir_rules.mk=UTF-8
 encoding//Debug/ADS129X/subdir_vars.mk=UTF-8
+encoding//Debug/ESLO/subdir_rules.mk=UTF-8
+encoding//Debug/ESLO/subdir_vars.mk=UTF-8
 encoding//Debug/LSM303AGR/subdir_rules.mk=UTF-8
 encoding//Debug/LSM303AGR/subdir_vars.mk=UTF-8
+encoding//Debug/NAND/subdir_rules.mk=UTF-8
+encoding//Debug/NAND/subdir_vars.mk=UTF-8
 encoding//Debug/makefile=UTF-8
 encoding//Debug/objects.mk=UTF-8
 encoding//Debug/sources.mk=UTF-8

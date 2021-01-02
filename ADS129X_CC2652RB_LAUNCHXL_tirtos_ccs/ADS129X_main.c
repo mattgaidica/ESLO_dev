@@ -33,6 +33,20 @@
 #include <lsm303agr_reg.h>
 #include <lsm303agr_CCXXXX.h>
 
+/* NAND */
+#include <SPI_NAND.h>
+#include <ESLO.h>
+#include <Serialize.h>
+
+/* ADS129X */
+#include <ADS129X.h>
+#include <Definitions.h>
+
+/* ----- END INCLUDES ----- */
+
+/* AXY Vars */
+stmdev_ctx_t dev_ctx_xl;
+stmdev_ctx_t dev_ctx_mg;
 static axis3bit16_t data_raw_acceleration;
 static axis3bit16_t data_raw_magnetic;
 static axis1bit16_t data_raw_temperature;
@@ -40,13 +54,18 @@ static float acceleration_mg[3];
 static float magnetic_mG[3];
 static float temperature_degC;
 static uint8_t whoamI, rst;
-
-/* ADS129X */
-#include <ADS129X.h>
-#include <Definitions.h>
-
 uint32_t XL_TIMEOUT = 500000;
 
+/* NAND Vars */
+uint8_t ret;
+uint16_t devId;
+uint8_t esloBytes[PAGE_DATA_SIZE]; // 2048 / 4 = 512
+uint32_t esloBuffer[PAGE_DATA_SIZE / 4]; // 512x 4-byte packets
+//uint8_t readBuf[PAGE_SIZE]; // 2176, always allocate full page size
+uint32_t esloPacket;
+uAddrType esloAddr;
+
+/* ADS129X Vars */
 int32_t status;
 int32_t ch1;
 int32_t ch2;
@@ -58,13 +77,11 @@ int32_t ch2Buf[256];
 int32_t ch3Buf[256];
 int32_t ch4Buf[256];
 
-/* Initialize mems driver interface */
-stmdev_ctx_t dev_ctx_xl;
-stmdev_ctx_t dev_ctx_mg;
-
+/* ----- Application ----- */
 uint32_t axyCount;
 uint32_t eegCount;
 uint32_t magCount;
+eslo_dt eslo = { .mode = Mode_Debug, .type = Type_EEG1 };
 
 /* Tasks and Semaphores */
 void eegTaskFcn(UArg a0, UArg a1);
@@ -97,26 +114,32 @@ void eegTaskFcn(UArg a0, UArg a1) {
 }
 
 void xlTaskFcn(UArg a0, UArg a1) {
-	uint8_t axyStat;
-	uint8_t i;
+	uint8_t iFifo, iAxis;
 	while (1) {
-		// could set a timeout for ~5s for debugging, if AXY is always on
+		// timeout 5s for debugging (force interrupt reset)
 		Semaphore_pend(xlSem, XL_TIMEOUT);
 
-		// make sure buffer is full?
 		lsm303agr_fifo_src_reg_a_t fifo_reg;
 		lsm303agr_xl_fifo_status_get(&dev_ctx_xl, &fifo_reg);
 
-		for (i = 0; i <= fifo_reg.fss; i++) {
+		for (iFifo = 0; iFifo <= fifo_reg.fss; iFifo++) {
 			memset(data_raw_acceleration.u8bit, 0x00, 3 * sizeof(int16_t));
 			lsm303agr_acceleration_raw_get(&dev_ctx_xl,
 					data_raw_acceleration.u8bit);
-			acceleration_mg[0] = lsm303agr_from_fs_2g_hr_to_mg(
-					data_raw_acceleration.i16bit[0]);
-			acceleration_mg[1] = lsm303agr_from_fs_2g_hr_to_mg(
-					data_raw_acceleration.i16bit[1]);
-			acceleration_mg[2] = lsm303agr_from_fs_2g_hr_to_mg(
-					data_raw_acceleration.i16bit[2]);
+
+			eslo.type = Type_AxyXlx;
+			ESLO_Write(&iEslo, &iPage, eslo, data_raw_acceleration[0]);
+			eslo.type = Type_AxyXly;
+			ESLO_Write(&iEslo, &iPage, eslo, data_raw_acceleration[1]);
+			eslo.type = Type_AxyXlz;
+			ESLO_Write(&iEslo, &iPage, eslo, data_raw_acceleration[2]);
+
+//			acceleration_mg[0] = lsm303agr_from_fs_2g_hr_to_mg(
+//					data_raw_acceleration.i16bit[0]);
+//			acceleration_mg[1] = lsm303agr_from_fs_2g_hr_to_mg(
+//					data_raw_acceleration.i16bit[1]);
+//			acceleration_mg[2] = lsm303agr_from_fs_2g_hr_to_mg(
+//					data_raw_acceleration.i16bit[2]);
 		}
 
 		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
@@ -169,6 +192,10 @@ void ESLO_startup(void) {
 	GPIO_write(_SHDN, GPIO_CFG_OUT_HIGH);
 	Task_sleep(150000 / Clock_tickPeriod);
 	ADS_init(CONFIG_SPI_EEG, _EEG_CS);
+
+	/* NAND */
+	NAND_Init(CONFIG_SPI, _NAND_CS, _FRAM_CS);
+	ret = FlashReadDeviceIdentification(&devId);
 
 	/* AXY */
 	AXY_Init(CONFIG_I2C_AXY);
