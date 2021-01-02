@@ -59,7 +59,6 @@ uint32_t XL_TIMEOUT = 500000;
 /* NAND Vars */
 uint8_t ret;
 uint16_t devId;
-uint8_t esloBytes[PAGE_DATA_SIZE]; // 2048 / 4 = 512
 uint32_t esloBuffer[PAGE_DATA_SIZE / 4]; // 512x 4-byte packets
 //uint8_t readBuf[PAGE_SIZE]; // 2176, always allocate full page size
 uint32_t esloPacket;
@@ -71,11 +70,6 @@ int32_t ch1;
 int32_t ch2;
 int32_t ch3;
 int32_t ch4;
-
-int32_t ch1Buf[256];
-int32_t ch2Buf[256];
-int32_t ch3Buf[256];
-int32_t ch4Buf[256];
 
 /* ----- Application ----- */
 uint32_t axyCount;
@@ -114,7 +108,7 @@ void eegTaskFcn(UArg a0, UArg a1) {
 }
 
 void xlTaskFcn(UArg a0, UArg a1) {
-	uint8_t iFifo, iAxis;
+	uint8_t iFifo;
 	while (1) {
 		// timeout 5s for debugging (force interrupt reset)
 		Semaphore_pend(xlSem, XL_TIMEOUT);
@@ -128,11 +122,11 @@ void xlTaskFcn(UArg a0, UArg a1) {
 					data_raw_acceleration.u8bit);
 
 			eslo.type = Type_AxyXlx;
-			ESLO_Write(&iEslo, &iPage, eslo, data_raw_acceleration[0]);
+			ESLO_Write(&esloAddr, esloBuffer, eslo, (uint32_t)data_raw_acceleration.i16bit[0]);
 			eslo.type = Type_AxyXly;
-			ESLO_Write(&iEslo, &iPage, eslo, data_raw_acceleration[1]);
+			ESLO_Write(&esloAddr, esloBuffer, eslo, (uint32_t)data_raw_acceleration.i16bit[1]);
 			eslo.type = Type_AxyXlz;
-			ESLO_Write(&iEslo, &iPage, eslo, data_raw_acceleration[2]);
+			ESLO_Write(&esloAddr, esloBuffer, eslo, (uint32_t)data_raw_acceleration.i16bit[2]);
 
 //			acceleration_mg[0] = lsm303agr_from_fs_2g_hr_to_mg(
 //					data_raw_acceleration.i16bit[0]);
