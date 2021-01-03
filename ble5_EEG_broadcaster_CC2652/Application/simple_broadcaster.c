@@ -221,8 +221,6 @@ void ESLO_startup(void) {
 	Task_sleep(150000 / Clock_tickPeriod); // ?? 150ms
 	ADS_init(CONFIG_SPI_EEG, _EEG_CS);
 
-//	GPIO_setConfig(_EEG_DRDY, GPIO_CFG_IN_PU | GPIO_CFG_IN_INT_FALLING);
-//	GPIO_setCallback(_EEG_DRDY, eegDataReady);
 	GPIO_enableInt(_EEG_DRDY);
 }
 
