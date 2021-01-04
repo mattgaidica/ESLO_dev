@@ -17,7 +17,7 @@
                     <property Type="choicelist" Value="1" id="XDS110 Aux Port"/>
                 </choice>
             </property>
-            <property Type="choicelist" Value="1" id="The JTAG TCLK Frequency (MHz)">
+            <property Type="choicelist" Value="0" id="The JTAG TCLK Frequency (MHz)">
                 <choice Name="Fixed with user specified value" value="SPECIFIC">
                     <property Type="stringfield" Value="100.0kHz" id="-- Enter a value from 100.0kHz to 2.5MHz"/>
                 </choice>

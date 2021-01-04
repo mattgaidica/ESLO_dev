@@ -17,9 +17,9 @@
                     <property Type="choicelist" Value="1" id="XDS110 Aux Port"/>
                 </choice>
             </property>
-            <property Type="choicelist" Value="1" id="The JTAG TCLK Frequency (MHz)">
-                <choice Name="Fixed with user specified value" value="SPECIFIC">
-                    <property Type="stringfield" Value="100.0kHz" id="-- Enter a value from 100.0kHz to 2.5MHz"/>
+            <property Type="choicelist" Value="1" id="Debug Probe Selection">
+                <choice Name="Select by serial number" value="0">
+                    <property Type="stringfield" Value="L12002HU" id="-- Enter the serial number"/>
                 </choice>
             </property>
             <platform XML_version="1.2" id="platform_0">
@@ -30,7 +30,8 @@
                             <router HW_revision="1.0" XML_version="1.2" description="CS_DAP Router" id="CS_DAP_0" isa="CS_DAP">
                                 <subpath id="subpath_1">
                                     <cpu HW_revision="1.0" XML_version="1.2" description="Cortex_M4 CPU" deviceSim="false" id="Cortex_M4_0" isa="Cortex_M4">
-                                        <property Type="filepathfield" Value="../../emulation/gel/cc26x2.gel" id="GEL File"/>
+                                        <property Type="choicelist" Value="0" id="bypass"/>
+                                    <property Type="filepathfield" Value="../cc26x2_NORESET.gel" id="GEL File"/>
                                     </cpu>
                                 </subpath>
                             </router>

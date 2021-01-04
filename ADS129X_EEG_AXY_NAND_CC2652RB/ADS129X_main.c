@@ -123,7 +123,7 @@ void xlTaskFcn(UArg a0, UArg a1) {
 					data_raw_acceleration.u8bit);
 
 			eslo.type = Type_AxyXlx;
-			eslo.data = (uint32_t) data_raw_acceleration.i16bit[0];
+			eslo.data = axyCount;//(uint32_t) data_raw_acceleration.i16bit[0];
 			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 			// handle ret
 
@@ -133,12 +133,11 @@ void xlTaskFcn(UArg a0, UArg a1) {
 //					data_raw_acceleration.i16bit[1]);
 //			acceleration_mg[2] = lsm303agr_from_fs_2g_hr_to_mg(
 //					data_raw_acceleration.i16bit[2]);
+			axyCount++;
 		}
 
 		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
 		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
-
-		axyCount++;
 	}
 }
 
@@ -257,14 +256,14 @@ void ESLO_startup(void) {
 	/* Set magnetometer in continuous mode */
 	lsm303agr_mag_drdy_on_pin_set(&dev_ctx_mg, PROPERTY_ENABLE);
 
-	GPIO_enableInt(_EEG_DRDY);
+//	GPIO_enableInt(_EEG_DRDY);
 
 	lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
 	GPIO_enableInt(AXY_INT1);
 	lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
 
-	GPIO_enableInt(AXY_MAG);
-	lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_CONTINUOUS_MODE);
+//	GPIO_enableInt(AXY_MAG);
+//	lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_CONTINUOUS_MODE);
 }
 
 /*

@@ -15,5 +15,5 @@
 	<templateProperties value="id=empty_CC2652RB_LAUNCHXL_tirtos_ccs.projectspec.empty_CC2652RB_LAUNCHXL_tirtos_ccs,buildProfile=release,isHybrid=true"/>
 	<origin value="/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_20_01_04/examples/rtos/CC2652RB_LAUNCHXL/drivers/empty/tirtos/ccs/empty_CC2652RB_LAUNCHXL_tirtos_ccs.projectspec"/>
 	<filesToOpen value=""/>
-	<isTargetManual value="false"/>
+	<isTargetManual value="true"/>
 </projectOptions>
