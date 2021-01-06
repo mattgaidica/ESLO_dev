@@ -2,12 +2,15 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include <stdbool.h>
 
 /* Driver Header files */
 #include <ti/drivers/Board.h>
 #include <ti/drivers/GPIO.h>
 #include <ti/drivers/SPI.h>
 #include <ti/drivers/I2C.h>
+#include <ti/drivers/TRNG.h>
+#include <ti/drivers/cryptoutils/cryptokey/CryptoKeyPlaintext.h>
 
 #include <xdc/std.h>
 #include <xdc/runtime/Types.h>
@@ -72,39 +75,77 @@ int32_t ch3;
 int32_t ch4;
 
 /* ----- Application ----- */
+uint32_t esloVersion = 0x00000000;
 uint32_t axyCount;
 uint32_t eegCount;
 uint32_t magCount;
 eslo_dt eslo = { .mode = Mode_Debug, .type = Type_EEG1 };
-ReturnType ret;
+ReturnType ret; // NAND
+#define KEY_LENGTH_BYTES 3
 
 /* Tasks and Semaphores */
 void eegTaskFcn(UArg a0, UArg a1);
 void xlTaskFcn(UArg a0, UArg a1);
 void mgTaskFcn(UArg a0, UArg a1);
+void blinkTaskFcn(UArg a0, UArg a1);
 
 void* mainThread(void *arg0);
 
 /* Stack size in bytes */
 #define THREADSTACKSIZE    1024
 
+// !! could all of these be combined if using same params?
+// !! inspect at init for unique id/instance
 Task_Handle eegTask;
 Task_Params eegTaskParams;
 Semaphore_Handle eegSem;
+Semaphore_Params eegSemParams;
 
 Task_Handle xlTask;
 Task_Params xlTaskParams;
 Semaphore_Handle xlSem;
+Semaphore_Params xlSemParams;
 
 Task_Handle mgTask;
 Task_Params mgTaskParams;
 Semaphore_Handle mgSem;
+Semaphore_Params mgSemParams;
+
+Task_Handle blinkTask;
+Task_Params blinkTaskParams;
+
+void blinkTaskFcn(UArg a0, UArg a1) {
+	while (1) {
+		if (GPIO_read(DEBUG) == 0) {
+			GPIO_toggle(LED_0);
+			Task_sleep(10000);
+		}
+	}
+}
 
 void eegTaskFcn(UArg a0, UArg a1) {
 	while (1) {
 		Semaphore_pend(eegSem, BIOS_WAIT_FOREVER); // Wait for semaphore from HWI callback function
 		ADS_updateData(&status, &ch1, &ch2, &ch3, &ch4);
-		eegCount++;
+		if (GPIO_read(DEBUG)) {
+			eslo.type = Type_EEG1;
+			eslo.data = ch1;
+			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+
+			eslo.type = Type_EEG2;
+			eslo.data = ch2;
+			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+
+			eslo.type = Type_EEG3;
+			eslo.data = ch3;
+			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+
+			eslo.type = Type_EEG4;
+			eslo.data = ch4;
+			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+
+			eegCount++;
+		}
 	}
 }
 
@@ -122,18 +163,29 @@ void xlTaskFcn(UArg a0, UArg a1) {
 			lsm303agr_acceleration_raw_get(&dev_ctx_xl,
 					data_raw_acceleration.u8bit);
 
-			eslo.type = Type_AxyXlx;
-			eslo.data = axyCount;//(uint32_t) data_raw_acceleration.i16bit[0];
-			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
-			// handle ret
+			if (GPIO_read(DEBUG)) {
+				eslo.type = Type_AxyXlx;
+				eslo.data = (uint32_t) data_raw_acceleration.i16bit[0];
+				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+
+				eslo.type = Type_AxyXly;
+				eslo.data = (uint32_t) data_raw_acceleration.i16bit[1];
+				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+
+				eslo.type = Type_AxyXlz;
+				eslo.data = (uint32_t) data_raw_acceleration.i16bit[2];
+				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+
+				axyCount++;
+			}
+			// !!handle ret
 
 //			acceleration_mg[0] = lsm303agr_from_fs_2g_hr_to_mg(
 //					data_raw_acceleration.i16bit[0]);
 //			acceleration_mg[1] = lsm303agr_from_fs_2g_hr_to_mg(
 //					data_raw_acceleration.i16bit[1]);
 //			acceleration_mg[2] = lsm303agr_from_fs_2g_hr_to_mg(
-//					data_raw_acceleration.i16bit[2]);
-			axyCount++;
+//					data_raw_acceleration.i16bit[2]
 		}
 
 		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
@@ -175,15 +227,40 @@ void axyMagReady(uint_least8_t index) {
 }
 
 void ESLO_startup(void) {
-	GPIO_init();
-	SPI_init();
-	I2C_init();
-	GPIO_write(LED_0, CONFIG_GPIO_LED_ON);
+	/* Setup ESLO Buffer */
+	TRNG_Handle rndHandle;
+	int_fast16_t rndRes;
+	CryptoKey entropyKey;
+	uint8_t entropyBuffer[KEY_LENGTH_BYTES];
+	TRNG_init();
+	rndHandle = TRNG_open(CONFIG_TRNG_0, NULL);
+	if (!rndHandle) {
+		// Handle error
+		while (1)
+			;
+	}
+	CryptoKeyPlaintext_initBlankKey(&entropyKey, entropyBuffer,
+	KEY_LENGTH_BYTES);
+	rndRes = TRNG_generateEntropy(rndHandle, &entropyKey);
+	if (rndRes != TRNG_STATUS_SUCCESS) {
+		// Handle error
+		while (1)
+			;
+	}
+	TRNG_close(rndHandle);
+
+	memcpy(&esloVersion, entropyBuffer, sizeof(entropyBuffer));
+	eslo.type = Type_Version;
+	eslo.version = esloVersion; // set version once
+	eslo.data = esloVersion; // data is version in this case
+	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 
 	/* ADS129X */
 	GPIO_write(_SHDN, GPIO_CFG_OUT_HIGH);
 	Task_sleep(150000 / Clock_tickPeriod);
 	ADS_init(CONFIG_SPI_EEG, _EEG_CS);
+	// check for ADS ID
+	uint8 adsId = ADS_getDeviceID(); // 0x90
 
 	/* NAND */
 	NAND_Init(CONFIG_SPI, _NAND_CS, _FRAM_CS);
@@ -228,7 +305,7 @@ void ESLO_startup(void) {
 	lsm303agr_xl_block_data_update_set(&dev_ctx_xl, PROPERTY_ENABLE);
 	lsm303agr_mag_block_data_update_set(&dev_ctx_mg, PROPERTY_ENABLE);
 	/* Set Output Data Rate */
-	lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_10Hz);
+	lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_25Hz);
 	lsm303agr_mag_data_rate_set(&dev_ctx_mg, LSM303AGR_MG_ODR_10Hz);
 	/* Set accelerometer full scale */
 	lsm303agr_xl_full_scale_set(&dev_ctx_xl, LSM303AGR_2g);
@@ -256,7 +333,7 @@ void ESLO_startup(void) {
 	/* Set magnetometer in continuous mode */
 	lsm303agr_mag_drdy_on_pin_set(&dev_ctx_mg, PROPERTY_ENABLE);
 
-//	GPIO_enableInt(_EEG_DRDY);
+	GPIO_enableInt(_EEG_DRDY);
 
 	lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
 	GPIO_enableInt(AXY_INT1);
@@ -270,10 +347,21 @@ void ESLO_startup(void) {
  *  ======== mainThread ========
  */
 void* mainThread(void *arg0) {
+	GPIO_init();
+
+	// call blink
+
+	SPI_init();
+	I2C_init();
+
 	ESLO_startup();
 
 	while (1) {
-		GPIO_write(LED_0, GPIO_read(AXY_INT1));
+		if (GPIO_read(DEBUG)) {
+			GPIO_write(LED_0, GPIO_read(AXY_INT1));
+		} else {
+			GPIO_write(LED_0, GPIO_CFG_OUT_HIGH);
+		}
 	}
 }
 
@@ -312,45 +400,53 @@ int main(void) {
 	// Create Task(s)
 	Task_Params_init(&eegTaskParams); // Init Task Params with pri=2, stackSize = 512
 	eegTaskParams.priority = 2;
-//	eegTaskParams.stackSize = 512;
+	eegTaskParams.stackSize = 1024;
+	eegTask = Task_create(eegTaskFcn, &eegTaskParams, Error_IGNORE); // Create task1 with task1Fxn (Error Block ignored, we explicitly test 'task1' handle)
+	if (eegTask == NULL) {                  // Verify that Task1 was created
+		System_abort("Task eeg create failed");      // If not abort program
+	}
 
 	Task_Params_init(&xlTaskParams); // Init Task Params with pri=2, stackSize = 512
 	xlTaskParams.priority = 2;
-//	xlTaskParams.stackSize = 512;
+	xlTaskParams.stackSize = 1024;
+	xlTask = Task_create(xlTaskFcn, &xlTaskParams, Error_IGNORE); // Create task1 with task1Fxn (Error Block ignored, we explicitly test 'task1' handle)
+	if (xlTask == NULL) {                   // Verify that Task1 was created
+		System_abort("Task xl create failed");       // If not abort program
+	}
 
 	Task_Params_init(&mgTaskParams); // Init Task Params with pri=2, stackSize = 512
 	mgTaskParams.priority = 2;
-//	mgTaskParams.stackSize = 512;
-
-	eegTask = Task_create(eegTaskFcn, &eegTaskParams, Error_IGNORE); // Create task1 with task1Fxn (Error Block ignored, we explicitly test 'task1' handle)
-	if (eegTask == NULL) {                      // Verify that Task1 was created
-		System_abort("Task eeg create failed");          // If not abort program
-	}
-
-	xlTask = Task_create(xlTaskFcn, &xlTaskParams, Error_IGNORE); // Create task1 with task1Fxn (Error Block ignored, we explicitly test 'task1' handle)
-	if (xlTask == NULL) {                      // Verify that Task1 was created
-		System_abort("Task xl create failed");           // If not abort program
-	}
-
+	mgTaskParams.stackSize = 1024;
 	mgTask = Task_create(mgTaskFcn, &mgTaskParams, Error_IGNORE); // Create task1 with task1Fxn (Error Block ignored, we explicitly test 'task1' handle)
-	if (mgTask == NULL) {                      // Verify that Task1 was created
-		System_abort("Task mg create failed");           // If not abort program
+	if (mgTask == NULL) {                   // Verify that Task1 was created
+		System_abort("Task mg create failed");       // If not abort program
 	}
+
+//	blinkTask = Task_create(blinkTaskFcn, &blinkTaskParams, Error_IGNORE); // Create task1 with task1Fxn (Error Block ignored, we explicitly test 'task1' handle)
+//	if (blinkTask == NULL) {                    // Verify that Task1 was created
+//		System_abort("Task blink create failed");        // If not abort program
+//	}
 
 	// Create Semaphores
-	eegSem = Semaphore_create(0, NULL, Error_IGNORE); // Create Sem, count=0, params default, Error_Block ignored
-	if (eegSem == NULL) {                        // Verify that item was created
-		System_abort("Semaphore eeg create failed");     // If not abort program
+	Semaphore_Params_init(&eegSemParams);
+	eegSemParams.mode = Semaphore_Mode_BINARY;
+	eegSem = Semaphore_create(0, &eegSemParams, Error_IGNORE); // Create Sem, count=0, params default, Error_Block ignored
+	if (eegSem == NULL) {                    // Verify that item was created
+		System_abort("Semaphore eeg create failed"); // If not abort program
 	}
 
-	xlSem = Semaphore_create(0, NULL, Error_IGNORE); // Create Sem, count=0, params default, Error_Block ignored
-	if (xlSem == NULL) {                        // Verify that item was created
-		System_abort("Semaphore xl create failed");      // If not abort program
+	Semaphore_Params_init(&xlSemParams);
+	xlSemParams.mode = Semaphore_Mode_BINARY;
+	xlSem = Semaphore_create(0, &xlSemParams, Error_IGNORE); // Create Sem, count=0, params default, Error_Block ignored
+	if (xlSem == NULL) {                     // Verify that item was created
+		System_abort("Semaphore xl create failed");  // If not abort program
 	}
 
-	mgSem = Semaphore_create(0, NULL, Error_IGNORE); // Create Sem, count=0, params default, Error_Block ignored
-	if (mgSem == NULL) {                        // Verify that item was created
-		System_abort("Semaphore mg create failed");      // If not abort program
+	Semaphore_Params_init(&mgSemParams);
+	mgSemParams.mode = Semaphore_Mode_BINARY;
+	mgSem = Semaphore_create(0, &mgSemParams, Error_IGNORE); // Create Sem, count=0, params default, Error_Block ignored
+	if (mgSem == NULL) {                     // Verify that item was created
+		System_abort("Semaphore mg create failed");  // If not abort program
 	}
 
 	BIOS_start();

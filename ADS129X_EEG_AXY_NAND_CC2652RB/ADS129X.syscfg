@@ -31,6 +31,8 @@ const RTOS   = scripting.addModule("/ti/drivers/RTOS");
 const SPI    = scripting.addModule("/ti/drivers/SPI", {}, false);
 const SPI1   = SPI.addInstance();
 const SPI2   = SPI.addInstance();
+const TRNG   = scripting.addModule("/ti/drivers/TRNG", {}, false);
+const TRNG1  = TRNG.addInstance();
 
 /**
  * Write custom configuration values to the imported modules.
@@ -136,6 +138,8 @@ SPI2.sclkPinInstance.mode  = "Input";
 SPI2.misoPinInstance.$name = "CONFIG_PIN_6";
 SPI2.mosiPinInstance.$name = "CONFIG_PIN_7";
 SPI2.mosiPinInstance.mode  = "Input";
+
+TRNG1.$name = "CONFIG_TRNG_0";
 
 /**
  * Pinmux solution for unlocked pins/peripherals. This ensures that minor changes to the automatic solver in a future

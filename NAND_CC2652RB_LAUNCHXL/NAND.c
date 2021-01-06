@@ -21,6 +21,7 @@ uAddrType esloAddr = 0x00000000;
 uint8_t readBuf[PAGE_SIZE]; // 2176, always allocate full page size
 uint32_t i;
 
+// !! erase memory.dat before running
 void* mainThread(void *arg0) {
 	GPIO_init();
 	SPI_init();
@@ -29,12 +30,16 @@ void* mainThread(void *arg0) {
 	GPIO_write(LED_0, CONFIG_GPIO_LED_OFF);
 
 	NAND_Init(CONFIG_SPI, _NAND_CS, _FRAM_CS);
-	ret = FlashReadDeviceIdentification(&devId);
+	ret = FlashReadDeviceIdentification(&devId); // 0x2C25
 
 	// will run 131,072 times
 //	while (esloAddr < FLASH_SIZE) {
+	ret = FlashPageRead(0x00000000, readBuf);
+	ret = FlashPageRead(0x00040000, readBuf);
+	ret = FlashPageRead(0x00080000, readBuf);
+
 	GPIO_write(LED_0, CONFIG_GPIO_LED_ON);
-	for (i = 0; i < 5; i++) {
+	for (i = 0; i < 250; i++) {
 		ret = FlashPageRead(esloAddr, readBuf);
 		esloAddr += 0x00001000;
 		GPIO_toggle(LED_0);
