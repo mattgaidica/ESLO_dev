@@ -137,7 +137,7 @@ void eegTaskFcn(UArg a0, UArg a1) {
 			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 
 			eslo.type = Type_EEG3;
-			eslo.data = ch3;
+			eslo.data = eegCount; //ch3;
 			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 
 			eslo.type = Type_EEG4;
@@ -153,7 +153,7 @@ void xlTaskFcn(UArg a0, UArg a1) {
 	uint8_t iFifo;
 	while (1) {
 		// timeout 5s for debugging (force interrupt reset)
-		Semaphore_pend(xlSem, XL_TIMEOUT);
+		Semaphore_pend(xlSem, BIOS_WAIT_FOREVER); //XL_TIMEOUT);
 
 		lsm303agr_fifo_src_reg_a_t fifo_reg;
 		lsm303agr_xl_fifo_status_get(&dev_ctx_xl, &fifo_reg);
@@ -348,11 +348,22 @@ void ESLO_startup(void) {
  */
 void* mainThread(void *arg0) {
 	GPIO_init();
-
-	// call blink
-
 	SPI_init();
 	I2C_init();
+
+	GPIO_write(_SHDN, GPIO_CFG_OUT_LOW); // ADS off
+	// !!cant use XL timeout with this
+	uint8_t loopCount = 0;
+	while (loopCount < 6) {
+		if (GPIO_read(DEBUG) == 0) {
+			loopCount = 0;
+		} else {
+			loopCount++;
+		}
+		GPIO_toggle(LED_0);
+		Task_sleep(10000);
+	}
+	GPIO_write(LED_0, GPIO_CFG_OUT_LOW);
 
 	ESLO_startup();
 
@@ -422,6 +433,7 @@ int main(void) {
 		System_abort("Task mg create failed");       // If not abort program
 	}
 
+//	Task_Params_init(&blinkTaskParams); // Init Task Params with pri=2, stackSize = 512
 //	blinkTask = Task_create(blinkTaskFcn, &blinkTaskParams, Error_IGNORE); // Create task1 with task1Fxn (Error Block ignored, we explicitly test 'task1' handle)
 //	if (blinkTask == NULL) {                    // Verify that Task1 was created
 //		System_abort("Task blink create failed");        // If not abort program
