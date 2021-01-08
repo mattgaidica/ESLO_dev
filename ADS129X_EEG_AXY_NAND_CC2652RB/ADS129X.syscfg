@@ -59,29 +59,34 @@ GPIO1.pinInstance.$name = "CONFIG_PIN_0";
 GPIO2.$name             = "_SHDN";
 GPIO2.mode              = "Output";
 GPIO2.pull              = "Pull Down";
+GPIO2.outputStrength    = "Low";
 GPIO2.gpioPin.$assign   = "boosterpack.32";
 GPIO2.pinInstance.$name = "CONFIG_PIN_8";
 
 GPIO3.$name              = "_FRAM_CS";
 GPIO3.mode               = "Output";
 GPIO3.initialOutputState = "High";
+GPIO3.outputStrength     = "Low";
 GPIO3.gpioPin.$assign    = "boosterpack.18";
 GPIO3.pinInstance.$name  = "CONFIG_PIN_9";
 
 GPIO4.$name              = "_NAND_CS";
 GPIO4.$hardware          = system.deviceData.board.components.MX25R8035F.subComponents.SELECT;
 GPIO4.initialOutputState = "High";
+GPIO4.outputStrength     = "Low";
 GPIO4.pinInstance.$name  = "CONFIG_PIN_10";
 
 GPIO5.$name              = "_EEG_CS";
 GPIO5.mode               = "Output";
 GPIO5.initialOutputState = "High";
+GPIO5.outputStrength     = "Low";
 GPIO5.gpioPin.$assign    = "boosterpack.8";
 GPIO5.pinInstance.$name  = "CONFIG_PIN_11";
 
 GPIO6.$name              = "EEG_START";
 GPIO6.mode               = "Output";
 GPIO6.initialOutputState = "High";
+GPIO6.outputStrength     = "Low";
 GPIO6.gpioPin.$assign    = "boosterpack.5";
 GPIO6.pinInstance.$name  = "CONFIG_PIN_12";
 
@@ -91,6 +96,7 @@ GPIO7.interruptTrigger  = "Falling Edge";
 GPIO7.callbackFunction  = "eegDataReady";
 GPIO7.gpioPin.$assign   = "boosterpack.2";
 GPIO7.pinInstance.$name = "CONFIG_PIN_13";
+GPIO7.pinInstance.pull  = "None";
 
 GPIO8.interruptTrigger  = "Rising Edge";
 GPIO8.pull              = "Pull Down";

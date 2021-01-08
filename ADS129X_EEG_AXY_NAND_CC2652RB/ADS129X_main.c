@@ -309,10 +309,10 @@ void ESLO_startup(void) {
 	lsm303agr_xl_device_id_get(&dev_ctx_xl, &whoamI);
 	while (whoamI != LSM303AGR_ID_XL) {
 		lsm303agr_xl_device_id_get(&dev_ctx_xl, &whoamI);
-		GPIO_toggle(LED_0);
-		Task_sleep(10000);
-		GPIO_toggle(LED_0);
-		Task_sleep(10000);
+//		GPIO_toggle(LED_0);
+//		Task_sleep(10000);
+//		GPIO_toggle(LED_0);
+//		Task_sleep(10000);
 	}
 
 //	whoamI = 0;
