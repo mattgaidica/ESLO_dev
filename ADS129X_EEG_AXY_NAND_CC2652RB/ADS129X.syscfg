@@ -33,6 +33,8 @@ const SPI1   = SPI.addInstance();
 const SPI2   = SPI.addInstance();
 const TRNG   = scripting.addModule("/ti/drivers/TRNG", {}, false);
 const TRNG1  = TRNG.addInstance();
+const Timer  = scripting.addModule("/ti/drivers/Timer", {}, false);
+const Timer1 = Timer.addInstance();
 
 /**
  * Write custom configuration values to the imported modules.
@@ -141,23 +143,28 @@ SPI2.mosiPinInstance.mode  = "Input";
 
 TRNG1.$name = "CONFIG_TRNG_0";
 
+Timer1.$name               = "CONFIG_TIMER_0";
+Timer1.timerType           = "32 Bits";
+Timer1.timerInstance.$name = "CONFIG_GPTIMER_0";
+
 /**
  * Pinmux solution for unlocked pins/peripherals. This ensures that minor changes to the automatic solver in a future
  * version of the tool will not impact the pinmux you originally saw.  These lines can be completely deleted in order to
  * re-solve from scratch.
  */
-ADC1.adc.$suggestSolution              = "ADC0";
-ADC2.adc.$suggestSolution              = "ADC0";
-GPIO1.gpioPin.$suggestSolution         = "boosterpack.40";
-GPIO4.gpioPin.$suggestSolution         = "boosterpack.38";
-GPIO11.gpioPin.$suggestSolution        = "boosterpack.12";
-I2C1.i2c.$suggestSolution              = "I2C0";
-SPI1.spi.$suggestSolution              = "SSI0";
-SPI1.spi.sclkPin.$suggestSolution      = "boosterpack.7";
-SPI1.spi.misoPin.$suggestSolution      = "boosterpack.14";
-SPI1.spi.mosiPin.$suggestSolution      = "boosterpack.15";
-SPI1.spi.dmaRxChannel.$suggestSolution = "DMA_CH3";
-SPI1.spi.dmaTxChannel.$suggestSolution = "DMA_CH4";
-SPI2.spi.$suggestSolution              = "SSI1";
-SPI2.spi.dmaRxChannel.$suggestSolution = "DMA_CH16";
-SPI2.spi.dmaTxChannel.$suggestSolution = "DMA_CH17";
+ADC1.adc.$suggestSolution                   = "ADC0";
+ADC2.adc.$suggestSolution                   = "ADC0";
+GPIO1.gpioPin.$suggestSolution              = "boosterpack.40";
+GPIO4.gpioPin.$suggestSolution              = "boosterpack.38";
+GPIO11.gpioPin.$suggestSolution             = "boosterpack.12";
+I2C1.i2c.$suggestSolution                   = "I2C0";
+SPI1.spi.$suggestSolution                   = "SSI0";
+SPI1.spi.sclkPin.$suggestSolution           = "boosterpack.7";
+SPI1.spi.misoPin.$suggestSolution           = "boosterpack.14";
+SPI1.spi.mosiPin.$suggestSolution           = "boosterpack.15";
+SPI1.spi.dmaRxChannel.$suggestSolution      = "DMA_CH3";
+SPI1.spi.dmaTxChannel.$suggestSolution      = "DMA_CH4";
+SPI2.spi.$suggestSolution                   = "SSI1";
+SPI2.spi.dmaRxChannel.$suggestSolution      = "DMA_CH16";
+SPI2.spi.dmaTxChannel.$suggestSolution      = "DMA_CH17";
+Timer1.timerInstance.timer.$suggestSolution = "GPTM0";

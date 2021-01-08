@@ -5,10 +5,12 @@
 #include <stdbool.h>
 
 /* Driver Header files */
+#include <ti/drivers/ADC.h>
 #include <ti/drivers/Board.h>
 #include <ti/drivers/GPIO.h>
 #include <ti/drivers/SPI.h>
 #include <ti/drivers/I2C.h>
+#include <ti/drivers/Timer.h>
 #include <ti/drivers/TRNG.h>
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKeyPlaintext.h>
 
@@ -87,9 +89,10 @@ ReturnType ret; // NAND
 void eegTaskFcn(UArg a0, UArg a1);
 void xlTaskFcn(UArg a0, UArg a1);
 void mgTaskFcn(UArg a0, UArg a1);
-void blinkTaskFcn(UArg a0, UArg a1);
+void adcTaskFcn(UArg a0, UArg a1);
 
 void* mainThread(void *arg0);
+void timerCallback(Timer_Handle myHandle, int_fast16_t status);
 
 /* Stack size in bytes */
 #define THREADSTACKSIZE    1024
@@ -111,16 +114,42 @@ Task_Params mgTaskParams;
 Semaphore_Handle mgSem;
 Semaphore_Params mgSemParams;
 
-Task_Handle blinkTask;
-Task_Params blinkTaskParams;
+Task_Handle adcTask;
+Task_Params adcTaskParams;
+Semaphore_Handle adcSem;
+Semaphore_Params adcSemParams;
 
-void blinkTaskFcn(UArg a0, UArg a1) {
+Timer_Handle timer0;
+Timer_Params timerParams;
+
+ADC_Handle adc;
+ADC_Params adcParams;
+int_fast16_t adcRes;
+uint16_t adcValue0;
+uint32_t adcValue0MicroVolt;
+
+void adcTaskFcn(UArg a0, UArg a1) {
 	while (1) {
-		if (GPIO_read(DEBUG) == 0) {
-			GPIO_toggle(LED_0);
-			Task_sleep(10000);
+		Semaphore_pend(adcSem, BIOS_WAIT_FOREVER);
+		/* Blocking mode conversion */
+		adcRes = ADC_convert(adc, &adcValue0);
+		if (adcRes == ADC_STATUS_SUCCESS) {
+			// read, multiply by 2 for voltage divider
+			adcValue0MicroVolt = ADC_convertRawToMicroVolts(adc, adcValue0) * 2;
+			eslo.type = Type_BatteryVoltage;
+			eslo.data = adcValue0MicroVolt;
+			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 		}
 	}
+}
+
+void timerCallback(Timer_Handle myHandle, int_fast16_t status) {
+	if (GPIO_read(DEBUG) == 0) {
+		GPIO_write(LED_0, GPIO_CFG_OUT_HIGH);
+	} else {
+		GPIO_toggle(LED_0);
+	}
+	Semaphore_post(adcSem);
 }
 
 void eegTaskFcn(UArg a0, UArg a1) {
@@ -248,7 +277,7 @@ void ESLO_startup(void) {
 			;
 	}
 	TRNG_close(rndHandle);
-
+	// set version
 	memcpy(&esloVersion, entropyBuffer, sizeof(entropyBuffer));
 	eslo.type = Type_Version;
 	eslo.version = esloVersion; // set version once
@@ -283,7 +312,7 @@ void ESLO_startup(void) {
 		GPIO_toggle(LED_0);
 		Task_sleep(10000);
 		GPIO_toggle(LED_0);
-		Task_sleep(100000);
+		Task_sleep(10000);
 	}
 
 //	whoamI = 0;
@@ -330,6 +359,33 @@ void ESLO_startup(void) {
 	int1Val.i1_click = 0;
 	lsm303agr_xl_pin_int1_config_set(&dev_ctx_xl, &int1Val);
 
+	// turn on timer
+	Timer_Params_init(&timerParams);
+	timerParams.period = 1;
+	timerParams.periodUnits = Timer_PERIOD_HZ;
+	timerParams.timerMode = Timer_CONTINUOUS_CALLBACK;
+	timerParams.timerCallback = timerCallback;
+
+	timer0 = Timer_open(CONFIG_TIMER_0, &timerParams);
+
+	if (timer0 == NULL) {
+		/* Failed to initialized timer */
+		while (1) {
+		}
+	}
+	if (Timer_start(timer0) == Timer_STATUS_ERROR) {
+		/* Failed to start timer */
+		while (1) {
+		}
+	}
+	ADC_Params_init(&adcParams);
+	adc = ADC_open(R_VBATT, &adcParams);
+	if (adc == NULL) {
+		while (1)
+			;
+	}
+
+	// ENABLE INTERRUPTS
 	/* Set magnetometer in continuous mode */
 	lsm303agr_mag_drdy_on_pin_set(&dev_ctx_mg, PROPERTY_ENABLE);
 
@@ -350,6 +406,8 @@ void* mainThread(void *arg0) {
 	GPIO_init();
 	SPI_init();
 	I2C_init();
+	Timer_init();
+	ADC_init();
 
 	GPIO_write(_SHDN, GPIO_CFG_OUT_LOW); // ADS off
 	// !!cant use XL timeout with this
@@ -368,11 +426,6 @@ void* mainThread(void *arg0) {
 	ESLO_startup();
 
 	while (1) {
-		if (GPIO_read(DEBUG)) {
-			GPIO_write(LED_0, GPIO_read(AXY_INT1));
-		} else {
-			GPIO_write(LED_0, GPIO_CFG_OUT_HIGH);
-		}
 	}
 }
 
@@ -433,6 +486,14 @@ int main(void) {
 		System_abort("Task mg create failed");       // If not abort program
 	}
 
+	Task_Params_init(&adcTaskParams); // Init Task Params with pri=2, stackSize = 512
+	adcTaskParams.priority = 2;
+	adcTaskParams.stackSize = 1024;
+	adcTask = Task_create(adcTaskFcn, &adcTaskParams, Error_IGNORE); // Create task1 with task1Fxn (Error Block ignored, we explicitly test 'task1' handle)
+	if (adcTask == NULL) {                   // Verify that Task1 was created
+		System_abort("Task adc create failed");       // If not abort program
+	}
+
 //	Task_Params_init(&blinkTaskParams); // Init Task Params with pri=2, stackSize = 512
 //	blinkTask = Task_create(blinkTaskFcn, &blinkTaskParams, Error_IGNORE); // Create task1 with task1Fxn (Error Block ignored, we explicitly test 'task1' handle)
 //	if (blinkTask == NULL) {                    // Verify that Task1 was created
@@ -459,6 +520,13 @@ int main(void) {
 	mgSem = Semaphore_create(0, &mgSemParams, Error_IGNORE); // Create Sem, count=0, params default, Error_Block ignored
 	if (mgSem == NULL) {                     // Verify that item was created
 		System_abort("Semaphore mg create failed");  // If not abort program
+	}
+
+	Semaphore_Params_init(&adcSemParams);
+	adcSemParams.mode = Semaphore_Mode_BINARY;
+	adcSem = Semaphore_create(0, &adcSemParams, Error_IGNORE); // Create Sem, count=0, params default, Error_Block ignored
+	if (adcSem == NULL) {                     // Verify that item was created
+		System_abort("Semaphore adc create failed");  // If not abort program
 	}
 
 	BIOS_start();

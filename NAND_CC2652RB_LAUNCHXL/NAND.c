@@ -35,7 +35,7 @@ void* mainThread(void *arg0) {
 	// will run 131,072 times
 	//	while (esloAddr < FLASH_SIZE) {
 	GPIO_write(LED_0, CONFIG_GPIO_LED_ON);
-	for (i = 0; i < 20; i++) {
+	for (i = 0; i < 50; i++) {
 		ret = FlashPageRead(esloAddr, readBuf);
 		esloAddr += 0x00001000;
 		GPIO_toggle(LED_0);
