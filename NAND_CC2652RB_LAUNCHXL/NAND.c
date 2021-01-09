@@ -23,7 +23,6 @@ uint32_t i;
 
 // !! erase memory.dat before running
 void* mainThread(void *arg0) {
-	uint8_t saveBuf[1][PAGE_DATA_SIZE];
 	GPIO_init();
 	SPI_init();
 
@@ -41,23 +40,26 @@ void* mainThread(void *arg0) {
 
 	// could find last block first, then for loop
 	while (doLoop == 1) {
-		for (iPage = 0; iPage < 16; iPage++) {
-			ret = FlashPageRead(esloAddr, readBuf); // read whole page
-			memcpy(saveBuf[iPage], readBuf, PAGE_DATA_SIZE); // transfer to array
-			esloAddr += 0x00001000; // +1 page
-		}
-		// write entire block
-		GPIO_toggle(LED_0);
+		iPage = ADDRESS_2_PAGE(esloAddr);
+		iBlock = ADDRESS_2_BLOCK(esloAddr);
+		ret = FlashPageRead(esloAddr, readBuf); // read whole page
 
-		if (iBlock == 0) {
-			memcpy(&esloVersion, saveBuf[0], 4); // first page
-		} else {
-			memcpy(&esloCurVersion, saveBuf[0], 4);
-			if (esloVersion != esloCurVersion) {
-				doLoop = 0;
+		if (iPage == 0) {
+			if (iBlock == 0) {
+				memcpy(&esloVersion, readBuf, 4); // first instance
+			} else {
+				memcpy(&esloCurVersion, readBuf, 4); // subsequent instances
+				if (readBuf[0] == 0xFF) {
+					doLoop = 0;
+				} else {
+					if (readBuf[0] == 0x0F && esloVersion != esloCurVersion) {
+						doLoop = 0;
+					}
+				}
 			}
 		}
-		iBlock++;
+		GPIO_toggle(LED_0); // GEL breakpoint
+		esloAddr += 0x00001000; // +1 page
 	}
 
 	GPIO_write(LED_0, CONFIG_GPIO_LED_OFF);
