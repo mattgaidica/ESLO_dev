@@ -77,11 +77,12 @@ int32_t ch3;
 int32_t ch4;
 
 /* ----- Application ----- */
+uint32_t secondCount = 0;
 uint32_t esloVersion = 0x00000000;
 uint32_t axyCount;
 uint32_t eegCount;
 uint32_t magCount;
-eslo_dt eslo = { .mode = Mode_Debug, .type = Type_EEG1 };
+eslo_dt eslo = { .mode = Mode_Debug };
 ReturnType ret; // NAND
 #define KEY_LENGTH_BYTES 3
 
@@ -128,6 +129,16 @@ int_fast16_t adcRes;
 uint16_t adcValue0;
 uint32_t adcValue0MicroVolt;
 
+void timerCallback(Timer_Handle myHandle, int_fast16_t status) {
+	if (GPIO_read(DEBUG) == 0) {
+		GPIO_write(LED_0, GPIO_CFG_OUT_HIGH);
+	} else {
+		GPIO_toggle(LED_0);
+	}
+	Semaphore_post(adcSem);
+	secondCount++;
+}
+
 void adcTaskFcn(UArg a0, UArg a1) {
 	while (1) {
 		Semaphore_pend(adcSem, BIOS_WAIT_FOREVER);
@@ -140,16 +151,10 @@ void adcTaskFcn(UArg a0, UArg a1) {
 			eslo.data = adcValue0MicroVolt;
 			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 		}
+		eslo.type = Type_AbsoluteTime;
+		eslo.data = secondCount;
+		ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 	}
-}
-
-void timerCallback(Timer_Handle myHandle, int_fast16_t status) {
-	if (GPIO_read(DEBUG) == 0) {
-		GPIO_write(LED_0, GPIO_CFG_OUT_HIGH);
-	} else {
-		GPIO_toggle(LED_0);
-	}
-	Semaphore_post(adcSem);
 }
 
 void eegTaskFcn(UArg a0, UArg a1) {
@@ -292,7 +297,7 @@ void ESLO_startup(void) {
 	uint8 adsId = ADS_getDeviceID(); // 0x90
 
 	/* NAND */
-	NAND_Init(CONFIG_SPI, _NAND_CS, _FRAM_CS);
+	NAND_Init(CONFIG_SPI, _NAND_CS);
 	ret = FlashReadDeviceIdentification(&devId);
 
 	/* AXY */
@@ -391,9 +396,9 @@ void ESLO_startup(void) {
 
 	GPIO_enableInt(_EEG_DRDY);
 
-	lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
-	GPIO_enableInt(AXY_INT1);
-	lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
+//	lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
+//	GPIO_enableInt(AXY_INT1);
+//	lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
 
 //	GPIO_enableInt(AXY_MAG);
 //	lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_CONTINUOUS_MODE);

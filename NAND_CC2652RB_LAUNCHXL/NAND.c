@@ -29,7 +29,7 @@ void* mainThread(void *arg0) {
 	GPIO_write(_SHDN, GPIO_CFG_OUT_LOW); // ADS129X off
 	GPIO_write(LED_0, CONFIG_GPIO_LED_OFF);
 
-	NAND_Init(CONFIG_SPI, _NAND_CS, _FRAM_CS);
+	NAND_Init(CONFIG_SPI, _NAND_CS);
 	ret = FlashReadDeviceIdentification(&devId); // 0x2C25
 
 	uint32_t iBlock = 0;
@@ -49,10 +49,10 @@ void* mainThread(void *arg0) {
 				memcpy(&esloVersion, readBuf, 4); // first instance
 			} else {
 				memcpy(&esloCurVersion, readBuf, 4); // subsequent instances
-				if (readBuf[0] == 0xFF) {
+				if (readBuf[3] == 0xFF) {
 					doLoop = 0;
 				} else {
-					if (readBuf[0] == 0x0F && esloVersion != esloCurVersion) {
+					if (readBuf[3] == 0x0F && esloVersion != esloCurVersion) {
 						doLoop = 0;
 					}
 				}
