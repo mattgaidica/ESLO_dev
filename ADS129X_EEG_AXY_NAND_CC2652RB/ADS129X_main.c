@@ -11,8 +11,6 @@
 #include <ti/drivers/SPI.h>
 #include <ti/drivers/I2C.h>
 #include <ti/drivers/Timer.h>
-#include <ti/drivers/TRNG.h>
-#include <ti/drivers/cryptoutils/cryptokey/CryptoKeyPlaintext.h>
 
 #include <xdc/std.h>
 #include <xdc/runtime/Types.h>
@@ -84,7 +82,6 @@ uint32_t eegCount;
 uint32_t magCount;
 eslo_dt eslo = { .mode = Mode_Debug };
 ReturnType ret; // NAND
-#define KEY_LENGTH_BYTES 3
 
 /* Tasks and Semaphores */
 void eegTaskFcn(UArg a0, UArg a1);
@@ -261,29 +258,11 @@ void axyMagReady(uint_least8_t index) {
 }
 
 void ESLO_startup(void) {
-	/* Setup ESLO Buffer */
-	TRNG_Handle rndHandle;
-	int_fast16_t rndRes;
-	CryptoKey entropyKey;
-	uint8_t entropyBuffer[KEY_LENGTH_BYTES];
-	TRNG_init();
-	rndHandle = TRNG_open(CONFIG_TRNG_0, NULL);
-	if (!rndHandle) {
-		// Handle error
-		while (1)
-			;
-	}
-	CryptoKeyPlaintext_initBlankKey(&entropyKey, entropyBuffer,
-	KEY_LENGTH_BYTES);
-	rndRes = TRNG_generateEntropy(rndHandle, &entropyKey);
-	if (rndRes != TRNG_STATUS_SUCCESS) {
-		// Handle error
-		while (1)
-			;
-	}
-	TRNG_close(rndHandle);
-	// set version
-	memcpy(&esloVersion, entropyBuffer, sizeof(entropyBuffer));
+	/* NAND */
+	NAND_Init(CONFIG_SPI, _NAND_CS);
+	ret = FlashReadDeviceIdentification(&devId);
+
+	ESLO_SetVersion(&esloVersion, CONFIG_TRNG_0);
 	eslo.type = Type_Version;
 	eslo.version = esloVersion; // set version once
 	eslo.data = esloVersion; // data is version in this case
@@ -291,14 +270,11 @@ void ESLO_startup(void) {
 
 	/* ADS129X */
 	GPIO_write(_SHDN, GPIO_CFG_OUT_HIGH);
+	GPIO_setConfig(_EEG_CS, GPIO_CFG_IN_NOPULL);
 	Task_sleep(150000 / Clock_tickPeriod);
 	ADS_init(CONFIG_SPI_EEG, _EEG_CS);
 	// check for ADS ID
 	uint8 adsId = ADS_getDeviceID(); // 0x90
-
-	/* NAND */
-	NAND_Init(CONFIG_SPI, _NAND_CS);
-	ret = FlashReadDeviceIdentification(&devId);
 
 	/* AXY */
 	AXY_Init(CONFIG_I2C_AXY);
@@ -396,9 +372,9 @@ void ESLO_startup(void) {
 
 	GPIO_enableInt(_EEG_DRDY);
 
-//	lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
-//	GPIO_enableInt(AXY_INT1);
-//	lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
+	lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
+	GPIO_enableInt(AXY_INT1);
+	lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
 
 //	GPIO_enableInt(AXY_MAG);
 //	lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_CONTINUOUS_MODE);
@@ -409,12 +385,7 @@ void ESLO_startup(void) {
  */
 void* mainThread(void *arg0) {
 	GPIO_init();
-	SPI_init();
-	I2C_init();
-	Timer_init();
-	ADC_init();
 
-	GPIO_write(_SHDN, GPIO_CFG_OUT_LOW); // ADS off
 	// !!cant use XL timeout with this
 	uint8_t loopCount = 0;
 	while (loopCount < 6) {
@@ -423,10 +394,17 @@ void* mainThread(void *arg0) {
 		} else {
 			loopCount++;
 		}
-		GPIO_toggle(LED_0);
+		GPIO_write(LED_0, GPIO_CFG_OUT_HIGH);
 		Task_sleep(10000);
+		GPIO_write(LED_0, GPIO_CFG_OUT_LOW);
+		Task_sleep(200000);
 	}
 	GPIO_write(LED_0, GPIO_CFG_OUT_LOW);
+
+	SPI_init();
+	I2C_init();
+	Timer_init();
+	ADC_init();
 
 	ESLO_startup();
 
@@ -498,12 +476,6 @@ int main(void) {
 	if (adcTask == NULL) {                   // Verify that Task1 was created
 		System_abort("Task adc create failed");       // If not abort program
 	}
-
-//	Task_Params_init(&blinkTaskParams); // Init Task Params with pri=2, stackSize = 512
-//	blinkTask = Task_create(blinkTaskFcn, &blinkTaskParams, Error_IGNORE); // Create task1 with task1Fxn (Error Block ignored, we explicitly test 'task1' handle)
-//	if (blinkTask == NULL) {                    // Verify that Task1 was created
-//		System_abort("Task blink create failed");        // If not abort program
-//	}
 
 	// Create Semaphores
 	Semaphore_Params_init(&eegSemParams);
