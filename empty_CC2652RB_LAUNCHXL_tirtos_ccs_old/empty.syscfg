@@ -78,36 +78,39 @@ GPIO4.pinInstance.$name  = "CONFIG_PIN_10";
 
 GPIO5.$name              = "_EEG_CS";
 GPIO5.initialOutputState = "High";
-GPIO5.callbackFunction   = "";
 GPIO5.outputStrength     = "Low";
-GPIO5.mode               = "Output";
 GPIO5.gpioPin.$assign    = "boosterpack.8";
 GPIO5.pinInstance.$name  = "CONFIG_PIN_11";
-GPIO5.pinInstance.mode   = "Input";
 
-GPIO6.$name             = "EEG_START";
-GPIO6.mode              = "Output";
-GPIO6.outputStrength    = "Low";
-GPIO6.gpioPin.$assign   = "boosterpack.5";
-GPIO6.pinInstance.$name = "CONFIG_PIN_12";
+GPIO6.$name              = "EEG_START";
+GPIO6.mode               = "Output";
+GPIO6.outputStrength     = "Low";
+GPIO6.initialOutputState = "High";
+GPIO6.gpioPin.$assign    = "boosterpack.5";
+GPIO6.pinInstance.$name  = "CONFIG_PIN_12";
 
 GPIO7.$name             = "_EEG_DRDY";
+GPIO7.callbackFunction  = "eegDataReady";
+GPIO7.interruptTrigger  = "Falling Edge";
 GPIO7.gpioPin.$assign   = "boosterpack.2";
 GPIO7.pinInstance.$name = "CONFIG_PIN_13";
 
-GPIO8.$name             = "_AXY_MAG";
-GPIO8.interruptTrigger  = "Falling Edge";
+GPIO8.$name             = "AXY_MAG";
+GPIO8.callbackFunction  = "axyMagReady";
+GPIO8.interruptTrigger  = "Rising Edge";
 GPIO8.gpioPin.$assign   = "boosterpack.10";
 GPIO8.pinInstance.$name = "CONFIG_PIN_15";
 
 GPIO9.$name             = "AXY_INT1";
-GPIO9.interruptTrigger  = "Falling Edge";
+GPIO9.interruptTrigger  = "Rising Edge";
+GPIO9.callbackFunction  = "axyXlReady";
 GPIO9.gpioPin.$assign   = "boosterpack.19";
 GPIO9.pinInstance.$name = "CONFIG_PIN_16";
 
 GPIO10.$name             = "AXY_INT2";
 GPIO10.$hardware         = system.deviceData.board.components["BTN-1"];
 GPIO10.pull              = "None";
+GPIO10.interruptTrigger  = "None";
 GPIO10.pinInstance.$name = "CONFIG_PIN_17";
 GPIO10.gpioPin.$assign   = "boosterpack.13";
 

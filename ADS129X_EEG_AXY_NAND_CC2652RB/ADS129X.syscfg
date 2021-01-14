@@ -84,7 +84,6 @@ GPIO5.gpioPin.$assign    = "boosterpack.8";
 GPIO5.pinInstance.$name  = "CONFIG_PIN_11";
 
 GPIO6.$name                      = "EEG_START";
-GPIO6.mode                       = "Output";
 GPIO6.initialOutputState         = "High";
 GPIO6.outputStrength             = "Low";
 GPIO6.gpioPin.$assign            = "boosterpack.5";
@@ -135,6 +134,7 @@ SPI1.sclkPinInstance.$name = "CONFIG_PIN_1";
 SPI1.sclkPinInstance.mode  = "Input";
 SPI1.misoPinInstance.$name = "CONFIG_PIN_2";
 SPI1.mosiPinInstance.$name = "CONFIG_PIN_3";
+SPI1.mosiPinInstance.mode  = "Input";
 
 SPI2.$name                 = "CONFIG_SPI_EEG";
 SPI2.spi.sclkPin.$assign   = "boosterpack.37";

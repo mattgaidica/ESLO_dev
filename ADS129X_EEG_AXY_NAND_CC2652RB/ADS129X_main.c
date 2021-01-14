@@ -268,9 +268,10 @@ void ESLO_startup(void) {
 	eslo.data = esloVersion; // data is version in this case
 	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 
-	/* ADS129X */
+	/* ADS129X - Defaults in SysConfig */
 	GPIO_write(_SHDN, GPIO_CFG_OUT_HIGH);
-	GPIO_setConfig(_EEG_CS, GPIO_CFG_IN_NOPULL);
+	GPIO_setConfig(_EEG_CS, GPIO_CFG_OUT_STD | GPIO_CFG_OUT_STR_LOW | GPIO_CFG_OUT_LOW);
+	GPIO_setConfig(EEG_START, GPIO_CFG_OUT_STD | GPIO_CFG_OUT_STR_LOW | GPIO_CFG_OUT_HIGH);
 	Task_sleep(150000 / Clock_tickPeriod);
 	ADS_init(CONFIG_SPI_EEG, _EEG_CS);
 	// check for ADS ID
