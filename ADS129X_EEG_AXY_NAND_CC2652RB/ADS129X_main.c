@@ -389,7 +389,7 @@ void* mainThread(void *arg0) {
 
 	// !!cant use XL timeout with this
 	uint8_t loopCount = 0;
-	while (loopCount < 6) {
+	while (loopCount < 2) {
 		if (GPIO_read(DEBUG) == 0) {
 			loopCount = 0;
 		} else {
@@ -398,7 +398,7 @@ void* mainThread(void *arg0) {
 		GPIO_write(LED_0, GPIO_CFG_OUT_HIGH);
 		Task_sleep(10000);
 		GPIO_write(LED_0, GPIO_CFG_OUT_LOW);
-		Task_sleep(200000);
+		Task_sleep(200000); // 2s
 	}
 	GPIO_write(LED_0, GPIO_CFG_OUT_LOW);
 
