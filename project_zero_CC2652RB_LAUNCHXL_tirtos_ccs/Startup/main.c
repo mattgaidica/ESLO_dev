@@ -55,11 +55,9 @@
 #include <ti/drivers/Power.h>
 #include <ti/drivers/power/PowerCC26XX.h>
 #include <ti/sysbios/BIOS.h>
-#include <ti/drivers/UART.h>
 
 // Comment this in to use xdc.runtime.Log, but also remove UartLog_init below.
 #include <xdc/runtime/Log.h>
-//#include <ti/common/cc26xx/uartlog/UartLog.h> // Comment out to use xdc Log.
 
 #include <common/cc26xx/flash_interface/flash_interface.h>
 #include "find_stack_entry.h"

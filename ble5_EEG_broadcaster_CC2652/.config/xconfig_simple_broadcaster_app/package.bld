@@ -11,7 +11,7 @@ var makeAssembly = false;
 var Executable = xdc.module('xdc.bld.Executable');
 
 var exeOpts = new Executable.Attrs({
-        cfgScript: '/Users/matt/ti/workspaces/ESLO_dev/simple_broadcaster_CC26X2R1_LAUNCHXL_tirtos_ccs/simple_broadcaster_app.cfg',
+        cfgScript: '/Users/matt/ti/workspaces/ESLO_dev/ble5_EEG_broadcaster_CC2652/simple_broadcaster_app.cfg',
         profile: 'release',
         cfgHome: 'xconfig_simple_broadcaster_app',
 });
@@ -40,8 +40,8 @@ else {
 }
 
 var thisObj = {
-    cfg:        '/Users/matt/ti/workspaces/ESLO_dev/simple_broadcaster_CC26X2R1_LAUNCHXL_tirtos_ccs/simple_broadcaster_app.cfg',
-    outputPath: '/Users/matt/ti/workspaces/ESLO_dev/simple_broadcaster_CC26X2R1_LAUNCHXL_tirtos_ccs/.config/xconfig_simple_broadcaster_app',
+    cfg:        '/Users/matt/ti/workspaces/ESLO_dev/ble5_EEG_broadcaster_CC2652/simple_broadcaster_app.cfg',
+    outputPath: '/Users/matt/ti/workspaces/ESLO_dev/ble5_EEG_broadcaster_CC2652/.config/xconfig_simple_broadcaster_app',
     exeName:    'simple_broadcaster_app' + suffix,
     exeIntName: 'simple_broadcaster_app' + suffix.replace('.', '_'),
     targ:       targ,

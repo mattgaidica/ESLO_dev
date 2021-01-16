@@ -551,154 +551,154 @@
    <evtMap id="48">
       <longName>ti.sysbios.knl.Semaphore.LM_post</longName>
       <shortName>Semaphore_LM_post</shortName>
-      <moduleId>33</moduleId>
+      <moduleId>34</moduleId>
       <diagMask>768</diagMask>
       <msg>LM_post%3A+sem%3A+0x%25x%2C+count%3A+%25d</msg>
    </evtMap>
    <evtMap id="49">
       <longName>ti.sysbios.knl.Semaphore.LM_pend</longName>
       <shortName>Semaphore_LM_pend</shortName>
-      <moduleId>33</moduleId>
+      <moduleId>34</moduleId>
       <diagMask>768</diagMask>
       <msg>LM_pend%3A+sem%3A+0x%25x%2C+count%3A+%25d%2C+timeout%3A+%25d</msg>
    </evtMap>
    <evtMap id="50">
       <longName>ti.sysbios.knl.Swi.LM_begin</longName>
       <shortName>Swi_LM_begin</shortName>
-      <moduleId>34</moduleId>
+      <moduleId>35</moduleId>
       <diagMask>768</diagMask>
       <msg>LM_begin%3A+swi%3A+0x%25x%2C+func%3A+0x%25x%2C+preThread%3A+%25d</msg>
    </evtMap>
    <evtMap id="51">
       <longName>ti.sysbios.knl.Swi.LD_end</longName>
       <shortName>Swi_LD_end</shortName>
-      <moduleId>34</moduleId>
+      <moduleId>35</moduleId>
       <diagMask>512</diagMask>
       <msg>LD_end%3A+swi%3A+0x%25x</msg>
    </evtMap>
    <evtMap id="52">
       <longName>ti.sysbios.knl.Swi.LM_post</longName>
       <shortName>Swi_LM_post</shortName>
-      <moduleId>34</moduleId>
+      <moduleId>35</moduleId>
       <diagMask>768</diagMask>
       <msg>LM_post%3A+swi%3A+0x%25x%2C+func%3A+0x%25x%2C+pri%3A+%25d</msg>
    </evtMap>
    <evtMap id="53">
       <longName>ti.sysbios.knl.Task.LM_switch</longName>
       <shortName>Task_LM_switch</shortName>
-      <moduleId>35</moduleId>
+      <moduleId>36</moduleId>
       <diagMask>768</diagMask>
       <msg>LM_switch%3A+oldtsk%3A+0x%25x%2C+oldfunc%3A+0x%25x%2C+newtsk%3A+0x%25x%2C+newfunc%3A+0x%25x</msg>
    </evtMap>
    <evtMap id="54">
       <longName>ti.sysbios.knl.Task.LM_sleep</longName>
       <shortName>Task_LM_sleep</shortName>
-      <moduleId>35</moduleId>
+      <moduleId>36</moduleId>
       <diagMask>768</diagMask>
       <msg>LM_sleep%3A+tsk%3A+0x%25x%2C+func%3A+0x%25x%2C+timeout%3A+%25d</msg>
    </evtMap>
    <evtMap id="55">
       <longName>ti.sysbios.knl.Task.LD_ready</longName>
       <shortName>Task_LD_ready</shortName>
-      <moduleId>35</moduleId>
+      <moduleId>36</moduleId>
       <diagMask>512</diagMask>
       <msg>LD_ready%3A+tsk%3A+0x%25x%2C+func%3A+0x%25x%2C+pri%3A+%25d</msg>
    </evtMap>
    <evtMap id="56">
       <longName>ti.sysbios.knl.Task.LD_block</longName>
       <shortName>Task_LD_block</shortName>
-      <moduleId>35</moduleId>
+      <moduleId>36</moduleId>
       <diagMask>512</diagMask>
       <msg>LD_block%3A+tsk%3A+0x%25x%2C+func%3A+0x%25x</msg>
    </evtMap>
    <evtMap id="57">
       <longName>ti.sysbios.knl.Task.LM_yield</longName>
       <shortName>Task_LM_yield</shortName>
-      <moduleId>35</moduleId>
+      <moduleId>36</moduleId>
       <diagMask>768</diagMask>
       <msg>LM_yield%3A+tsk%3A+0x%25x%2C+func%3A+0x%25x%2C+currThread%3A+%25d</msg>
    </evtMap>
    <evtMap id="58">
       <longName>ti.sysbios.knl.Task.LM_setPri</longName>
       <shortName>Task_LM_setPri</shortName>
-      <moduleId>35</moduleId>
+      <moduleId>36</moduleId>
       <diagMask>768</diagMask>
       <msg>LM_setPri%3A+tsk%3A+0x%25x%2C+func%3A+0x%25x%2C+oldPri%3A+%25d%2C+newPri+%25d</msg>
    </evtMap>
    <evtMap id="59">
       <longName>ti.sysbios.knl.Task.LD_exit</longName>
       <shortName>Task_LD_exit</shortName>
-      <moduleId>35</moduleId>
+      <moduleId>36</moduleId>
       <diagMask>512</diagMask>
       <msg>LD_exit%3A+tsk%3A+0x%25x%2C+func%3A+0x%25x</msg>
    </evtMap>
    <evtMap id="60">
       <longName>ti.sysbios.knl.Task.LM_setAffinity</longName>
       <shortName>Task_LM_setAffinity</shortName>
-      <moduleId>35</moduleId>
+      <moduleId>36</moduleId>
       <diagMask>768</diagMask>
       <msg>LM_setAffinity%3A+tsk%3A+0x%25x%2C+func%3A+0x%25x%2C+oldCore%3A+%25d%2C+oldAffinity+%25d%2C+newAffinity+%25d</msg>
    </evtMap>
    <evtMap id="61">
       <longName>ti.sysbios.knl.Task.LM_schedule</longName>
       <shortName>Task_LM_schedule</shortName>
-      <moduleId>35</moduleId>
+      <moduleId>36</moduleId>
       <diagMask>1024</diagMask>
       <msg>LD_schedule%3A+coreId%3A+%25d%2C+workFlag%3A+%25d%2C+curSetLocal%3A+%25d%2C+curSetX%3A+%25d%2C+curMaskLocal%3A+%25d</msg>
    </evtMap>
    <evtMap id="62">
       <longName>ti.sysbios.knl.Task.LM_noWork</longName>
       <shortName>Task_LM_noWork</shortName>
-      <moduleId>35</moduleId>
+      <moduleId>36</moduleId>
       <diagMask>1024</diagMask>
       <msg>LD_noWork%3A+coreId%3A+%25d%2C+curSetLocal%3A+%25d%2C+curSetX%3A+%25d%2C+curMaskLocal%3A+%25d</msg>
    </evtMap>
    <evtMap id="63">
       <longName>ti.sysbios.family.arm.m3.Hwi.LM_begin</longName>
       <shortName>Hwi_LM_begin</shortName>
-      <moduleId>41</moduleId>
+      <moduleId>43</moduleId>
       <diagMask>768</diagMask>
       <msg>LM_begin%3A+hwi%3A+0x%25x%2C+func%3A+0x%25x%2C+preThread%3A+%25d%2C+intNum%3A+%25d%2C+irp%3A+0x%25x</msg>
    </evtMap>
    <evtMap id="64">
       <longName>ti.sysbios.family.arm.m3.Hwi.LD_end</longName>
       <shortName>Hwi_LD_end</shortName>
-      <moduleId>41</moduleId>
+      <moduleId>43</moduleId>
       <diagMask>512</diagMask>
       <msg>LD_end%3A+hwi%3A+0x%25x</msg>
    </evtMap>
    <evtMap id="65">
       <longName>ti.uia.loggers.LoggerStopMode.L_test</longName>
       <shortName>LoggerStopMode_L_test</shortName>
-      <moduleId>53</moduleId>
+      <moduleId>58</moduleId>
       <diagMask>256</diagMask>
       <msg>LoggerStopMode+Test</msg>
    </evtMap>
    <evtMap id="66">
       <longName>ti.sysbios.utils.Load.LS_cpuLoad</longName>
       <shortName>Load_LS_cpuLoad</shortName>
-      <moduleId>54</moduleId>
+      <moduleId>59</moduleId>
       <diagMask>2048</diagMask>
       <msg>LS_cpuLoad%3A+%25d%25%25</msg>
    </evtMap>
    <evtMap id="67">
       <longName>ti.sysbios.utils.Load.LS_hwiLoad</longName>
       <shortName>Load_LS_hwiLoad</shortName>
-      <moduleId>54</moduleId>
+      <moduleId>59</moduleId>
       <diagMask>2048</diagMask>
       <msg>LS_hwiLoad%3A+%25d%2C%25d</msg>
    </evtMap>
    <evtMap id="68">
       <longName>ti.sysbios.utils.Load.LS_swiLoad</longName>
       <shortName>Load_LS_swiLoad</shortName>
-      <moduleId>54</moduleId>
+      <moduleId>59</moduleId>
       <diagMask>2048</diagMask>
       <msg>LS_swiLoad%3A+%25d%2C%25d</msg>
    </evtMap>
    <evtMap id="69">
       <longName>ti.sysbios.utils.Load.LS_taskLoad</longName>
       <shortName>Load_LS_taskLoad</shortName>
-      <moduleId>54</moduleId>
+      <moduleId>59</moduleId>
       <diagMask>2048</diagMask>
       <msg>LS_taskLoad%3A+0x%25x%2C%25d%2C%25d%2C0x%25x</msg>
    </evtMap>
@@ -889,138 +889,168 @@
       <cFileName>Event.c</cFileName>
    </modIdMap>
    <modIdMap id="32">
+      <moduleName>ti.sysbios.knl.Mailbox</moduleName>
+      <packageVersion>2,0,0,0,0</packageVersion>
+      <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/knl/</packageBase>
+      <cFileName>Mailbox.c</cFileName>
+   </modIdMap>
+   <modIdMap id="33">
       <moduleName>ti.sysbios.knl.Queue</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/knl/</packageBase>
       <cFileName>Queue.c</cFileName>
    </modIdMap>
-   <modIdMap id="33">
+   <modIdMap id="34">
       <moduleName>ti.sysbios.knl.Semaphore</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/knl/</packageBase>
       <cFileName>Semaphore.c</cFileName>
    </modIdMap>
-   <modIdMap id="34">
+   <modIdMap id="35">
       <moduleName>ti.sysbios.knl.Swi</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/knl/</packageBase>
       <cFileName>Swi.c</cFileName>
    </modIdMap>
-   <modIdMap id="35">
+   <modIdMap id="36">
       <moduleName>ti.sysbios.knl.Task</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/knl/</packageBase>
       <cFileName>Task.c</cFileName>
    </modIdMap>
-   <modIdMap id="36">
+   <modIdMap id="37">
       <moduleName>ti.sysbios.knl.Clock_TimerProxy</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/knl/</packageBase>
       <cFileName>null</cFileName>
    </modIdMap>
-   <modIdMap id="37">
+   <modIdMap id="38">
       <moduleName>ti.sysbios.knl.Intrinsics_SupportProxy</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/knl/</packageBase>
       <cFileName>null</cFileName>
    </modIdMap>
-   <modIdMap id="38">
+   <modIdMap id="39">
       <moduleName>ti.sysbios.knl.Task_SupportProxy</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/knl/</packageBase>
       <cFileName>null</cFileName>
    </modIdMap>
-   <modIdMap id="39">
+   <modIdMap id="40">
       <moduleName>ti.sysbios.BIOS</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/</packageBase>
       <cFileName>BIOS.c</cFileName>
    </modIdMap>
-   <modIdMap id="40">
+   <modIdMap id="41">
       <moduleName>ti.sysbios.BIOS_RtsGateProxy</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/</packageBase>
       <cFileName>null</cFileName>
    </modIdMap>
-   <modIdMap id="41">
+   <modIdMap id="42">
+      <moduleName>ti.sysbios.rom.cortexm.cc26xx.cc26x2v2.CC26xx</moduleName>
+      <packageVersion>1,0,0,0,0</packageVersion>
+      <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/rom/cortexm/cc26xx/cc26x2v2/</packageBase>
+      <cFileName>null</cFileName>
+   </modIdMap>
+   <modIdMap id="43">
       <moduleName>ti.sysbios.family.arm.m3.Hwi</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/family/arm/m3/</packageBase>
       <cFileName>Hwi.c</cFileName>
    </modIdMap>
-   <modIdMap id="42">
+   <modIdMap id="44">
       <moduleName>ti.sysbios.family.arm.m3.IntrinsicsSupport</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/family/arm/m3/</packageBase>
       <cFileName>null</cFileName>
    </modIdMap>
-   <modIdMap id="43">
+   <modIdMap id="45">
       <moduleName>ti.sysbios.family.arm.m3.TaskSupport</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/family/arm/m3/</packageBase>
       <cFileName>TaskSupport.c</cFileName>
    </modIdMap>
-   <modIdMap id="44">
+   <modIdMap id="46">
       <moduleName>ti.sysbios.family.arm.cc26xx.Boot</moduleName>
       <packageVersion>1,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/family/arm/cc26xx/</packageBase>
       <cFileName>Boot.c</cFileName>
    </modIdMap>
-   <modIdMap id="45">
+   <modIdMap id="47">
       <moduleName>ti.sysbios.family.arm.cc26xx.Timer</moduleName>
       <packageVersion>1,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/family/arm/cc26xx/</packageBase>
       <cFileName>Timer.c</cFileName>
    </modIdMap>
-   <modIdMap id="46">
+   <modIdMap id="48">
       <moduleName>ti.sysbios.family.arm.cc26xx.TimestampProvider</moduleName>
       <packageVersion>1,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/family/arm/cc26xx/</packageBase>
       <cFileName>TimestampProvider.c</cFileName>
    </modIdMap>
-   <modIdMap id="47">
+   <modIdMap id="49">
       <moduleName>ti.sysbios.hal.Hwi</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/hal/</packageBase>
       <cFileName>Hwi.c</cFileName>
    </modIdMap>
-   <modIdMap id="48">
+   <modIdMap id="50">
       <moduleName>ti.sysbios.hal.Hwi_HwiProxy</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/hal/</packageBase>
       <cFileName>null</cFileName>
    </modIdMap>
-   <modIdMap id="49">
+   <modIdMap id="51">
+      <moduleName>ti.sysbios.heaps.HeapMem</moduleName>
+      <packageVersion>2,0,0,0,0</packageVersion>
+      <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/heaps/</packageBase>
+      <cFileName>HeapMem.c</cFileName>
+   </modIdMap>
+   <modIdMap id="52">
+      <moduleName>ti.sysbios.heaps.HeapTrack</moduleName>
+      <packageVersion>2,0,0,0,0</packageVersion>
+      <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/heaps/</packageBase>
+      <cFileName>HeapTrack.c</cFileName>
+   </modIdMap>
+   <modIdMap id="53">
       <moduleName>ti.sysbios.heaps.HeapCallback</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/heaps/</packageBase>
       <cFileName>HeapCallback.c</cFileName>
    </modIdMap>
-   <modIdMap id="50">
+   <modIdMap id="54">
+      <moduleName>ti.sysbios.heaps.HeapMem_Module_GateProxy</moduleName>
+      <packageVersion>2,0,0,0,0</packageVersion>
+      <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/heaps/</packageBase>
+      <cFileName>null</cFileName>
+   </modIdMap>
+   <modIdMap id="55">
       <moduleName>ti.sysbios.gates.GateHwi</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/gates/</packageBase>
       <cFileName>GateHwi.c</cFileName>
    </modIdMap>
-   <modIdMap id="51">
+   <modIdMap id="56">
       <moduleName>ti.sysbios.gates.GateMutexPri</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/gates/</packageBase>
       <cFileName>GateMutexPri.c</cFileName>
    </modIdMap>
-   <modIdMap id="52">
+   <modIdMap id="57">
       <moduleName>ti.sysbios.gates.GateMutex</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/gates/</packageBase>
       <cFileName>GateMutex.c</cFileName>
    </modIdMap>
-   <modIdMap id="53">
+   <modIdMap id="58">
       <moduleName>ti.uia.loggers.LoggerStopMode</moduleName>
       <packageVersion>1,0,0,2,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/uia/loggers/</packageBase>
       <cFileName>LoggerStopMode.c</cFileName>
    </modIdMap>
-   <modIdMap id="54">
+   <modIdMap id="59">
       <moduleName>ti.sysbios.utils.Load</moduleName>
       <packageVersion>2,0,0,0,0</packageVersion>
       <packageBase>/Users/matt/ti/simplelink_cc13x2_26x2_sdk_4_30_00_54/kernel/tirtos/packages/ti/sysbios/utils/</packageBase>

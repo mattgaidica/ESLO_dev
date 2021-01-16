@@ -67,51 +67,6 @@
 			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/osal/src/inc/osal_snv.h</locationURI>
 		</link>
 		<link>
-			<name>OAD/crc32.c</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/common/cc26xx/crc/crc32.c</locationURI>
-		</link>
-		<link>
-			<name>OAD/crc32.h</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/common/cc26xx/crc/crc32.h</locationURI>
-		</link>
-		<link>
-			<name>OAD/flash_interface.h</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/common/cc26xx/flash_interface/flash_interface.h</locationURI>
-		</link>
-		<link>
-			<name>OAD/flash_interface_ext_rtos_NVS.c</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/common/cc26xx/flash_interface/external/flash_interface_ext_rtos_NVS.c</locationURI>
-		</link>
-		<link>
-			<name>OAD/oad.c</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/profiles/oad/cc26xx/oad.c</locationURI>
-		</link>
-		<link>
-			<name>OAD/oad.h</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/profiles/oad/cc26xx/oad.h</locationURI>
-		</link>
-		<link>
-			<name>OAD/oad_defines.h</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/profiles/oad/cc26xx/oad_defines.h</locationURI>
-		</link>
-		<link>
-			<name>OAD/oad_image_header.h</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/common/cc26xx/oad/oad_image_header.h</locationURI>
-		</link>
-		<link>
-			<name>OAD/oad_image_header_app.c</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/profiles/oad/cc26xx/oad_image_header_app.c</locationURI>
-		</link>
-		<link>
 			<name>Profiles/button_service.c</name>
 			<type>1</type>
 			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/profiles/project_zero/button_service.c</locationURI>
@@ -240,31 +195,6 @@
 			<name>iCallBLE/icall_ble_apimsg.h</name>
 			<type>1</type>
 			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/icall/inc/icall_ble_apimsg.h</locationURI>
-		</link>
-		<link>
-			<name>Drivers/NV/crc.c</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/common/nv/crc.c</locationURI>
-		</link>
-		<link>
-			<name>Drivers/NV/crc.h</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/common/nv/crc.h</locationURI>
-		</link>
-		<link>
-			<name>Drivers/NV/nvintf.h</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/common/nv/nvintf.h</locationURI>
-		</link>
-		<link>
-			<name>Drivers/NV/nvocmp.c</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/common/nv/nvocmp.c</locationURI>
-		</link>
-		<link>
-			<name>Drivers/NV/nvocmp.h</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/common/nv/nvocmp.h</locationURI>
 		</link>
 	</linkedResources>
 </projectDescription>
