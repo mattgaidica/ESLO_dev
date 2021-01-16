@@ -225,15 +225,6 @@ static Clock_Struct clkRpaRead;
 static uint8_t button0State = 0;
 static uint8_t button1State = 0;
 
-// Variable used to store the number of messages pending once OAD completes
-// The application cannot reboot until all pending messages are sent
-static uint8_t numPendingMsgs = 0;
-static bool oadWaitReboot = false;
-
-// Flag to be stored in NV that tracks whether service changed
-// indications needs to be sent out
-static uint32_t sendSvcChngdOnNextBoot = FALSE;
-
 // Address mode
 static GAP_Addr_Modes_t addrMode = DEFAULT_ADDRESS_MODE;
 
@@ -301,7 +292,7 @@ static void ProjectZero_paramUpdClockHandler(UArg arg);
 #endif
 static void ProjectZero_clockHandler(UArg arg);
 static void ProjectZero_processConnEvt(Gap_ConnEventRpt_t *pReport);
-static void ProjectZero_connEvtCB(Gap_ConnEventRpt_t *pReport);
+//static void ProjectZero_connEvtCB(Gap_ConnEventRpt_t *pReport);
 
 /* Button handling functions */
 static void buttonDebounceSwiFxn(UArg buttonId);
@@ -313,7 +304,7 @@ static status_t ProjectZero_enqueueMsg(uint8_t event, void *pData);
 static char* util_arrtohex(uint8_t const *src, uint8_t src_len, uint8_t *dst,
 		uint8_t dst_len, uint8_t reverse);
 static char* util_getLocalNameStr(const uint8_t *advData, uint8_t len);
-static void ProjectZero_processL2CAPMsg(l2capSignalEvent_t *pMsg);
+//static void ProjectZero_processL2CAPMsg(l2capSignalEvent_t *pMsg);
 static void ProjectZero_checkSvcChgndFlag(uint32_t flag);
 
 /*********************************************************************
@@ -528,7 +519,7 @@ static void ProjectZero_init(void) {
 			&pRandomAddress);
 
 	// Process the Service changed flag
-	ProjectZero_checkSvcChgndFlag(sendSvcChngdOnNextBoot);
+//	ProjectZero_checkSvcChgndFlag(sendSvcChngdOnNextBoot);
 }
 
 /*********************************************************************
@@ -587,11 +578,11 @@ static void ProjectZero_taskFxn(UArg a0, UArg a1) {
 							ProjectZero_processHCIMsg(pMsg);
 							break;
 
-						case L2CAP_SIGNAL_EVENT:
-							// Process L2CAP free buffer notification
-							ProjectZero_processL2CAPMsg(
-									(l2capSignalEvent_t*) pMsg);
-							break;
+//						case L2CAP_SIGNAL_EVENT:
+//							// Process L2CAP free buffer notification
+//							ProjectZero_processL2CAPMsg(
+//									(l2capSignalEvent_t*) pMsg);
+//							break;
 
 						default:
 							// do nothing
@@ -628,42 +619,41 @@ static void ProjectZero_taskFxn(UArg a0, UArg a1) {
  *
  * @return  None
  */
-static void ProjectZero_processL2CAPMsg(l2capSignalEvent_t *pMsg) {
-	static bool firstRun = TRUE;
-
-	switch (pMsg->opcode) {
-	case L2CAP_NUM_CTRL_DATA_PKT_EVT: {
-		/*
-		 * We cannot reboot the device immediately after receiving
-		 * the enable command, we must allow the stack enough time
-		 * to process and respond to the OAD_EXT_CTRL_ENABLE_IMG
-		 * command. This command will determine the number of
-		 * packets currently queued up by the LE controller.
-		 */
-		if (firstRun) {
-			firstRun = false;
-
-			// We only want to set the numPendingMsgs once
-			numPendingMsgs = MAX_NUM_PDU
-					- pMsg->cmd.numCtrlDataPktEvt.numDataPkt;
-
-			// Wait until all PDU have been sent on cxn events
+//static void ProjectZero_processL2CAPMsg(l2capSignalEvent_t *pMsg) {
+//	static bool firstRun = TRUE;
+//
+//	switch (pMsg->opcode) {
+//	case L2CAP_NUM_CTRL_DATA_PKT_EVT: {
+//		/*
+//		 * We cannot reboot the device immediately after receiving
+//		 * the enable command, we must allow the stack enough time
+//		 * to process and respond to the OAD_EXT_CTRL_ENABLE_IMG
+//		 * command. This command will determine the number of
+//		 * packets currently queued up by the LE controller.
+//		 */
+//		if (firstRun) {
+//			firstRun = false;
+//
+//			// We only want to set the numPendingMsgs once
+//			numPendingMsgs = MAX_NUM_PDU
+//					- pMsg->cmd.numCtrlDataPktEvt.numDataPkt;
+//
+//			// Wait until all PDU have been sent on cxn events
 //			Gap_RegisterConnEventCb(ProjectZero_connEvtCB, GAP_CB_REGISTER,
 //					OAD_getactiveCxnHandle());
-
-			/* Set the flag so that the connection event callback will
-			 * be processed in the context of a pending OAD reboot
-			 */
-			oadWaitReboot = true;
-		}
-
-		break;
-	}
-	default:
-		break;
-	}
-}
-
+//
+//			/* Set the flag so that the connection event callback will
+//			 * be processed in the context of a pending OAD reboot
+//			 */
+//			oadWaitReboot = true;
+//		}
+//
+//		break;
+//	}
+//	default:
+//		break;
+//	}
+//}
 /*********************************************************************
  * @fn      ProjectZero_checkSvcChgndFlag
  *
@@ -673,25 +663,25 @@ static void ProjectZero_processL2CAPMsg(l2capSignalEvent_t *pMsg) {
  *
  * @return  none
  */
-static void ProjectZero_checkSvcChgndFlag(uint32_t flag) {
-	/*
-	 * When booting for the first time after an OAD the device must send a service
-	 * changed indication. This will cause any peers to rediscover services.
-	 *
-	 * To prevent sending a service changed IND on every boot, a flag is stored
-	 * in NV to determine whether or not the service changed IND needs to be
-	 * sent
-	 */
-	uint8_t status = osal_snv_read(BLE_NVID_CUST_START, sizeof(flag),
-			(uint8* )&flag);
-	if (status != SUCCESS) {
-		/*
-		 * On first boot the NV item will not have yet been initialzed, and the read
-		 * will fail. Do a write to set the initial value of the flash in NV
-		 */
-		osal_snv_write(BLE_NVID_CUST_START, sizeof(flag), (uint8* )&flag);
-	}
-}
+//static void ProjectZero_checkSvcChgndFlag(uint32_t flag) {
+//	/*
+//	 * When booting for the first time after an OAD the device must send a service
+//	 * changed indication. This will cause any peers to rediscover services.
+//	 *
+//	 * To prevent sending a service changed IND on every boot, a flag is stored
+//	 * in NV to determine whether or not the service changed IND needs to be
+//	 * sent
+//	 */
+//	uint8_t status = osal_snv_read(BLE_NVID_CUST_START, sizeof(flag),
+//			(uint8* )&flag);
+//	if (status != SUCCESS) {
+//		/*
+//		 * On first boot the NV item will not have yet been initialzed, and the read
+//		 * will fail. Do a write to set the initial value of the flash in NV
+//		 */
+//		osal_snv_write(BLE_NVID_CUST_START, sizeof(flag), (uint8* )&flag);
+//	}
+//}
 
 /*********************************************************************
  * @fn      ProjectZero_processStackEvent
@@ -985,17 +975,6 @@ static void ProjectZero_processGapMessage(gapEventHdr_t *pMsg) {
 			Log_info1("Connected. Peer address: "
 					ANSI_COLOR(FG_GREEN)"%s"ANSI_COLOR(ATTR_RESET),
 					(uintptr_t)addrStr);
-
-			// If we are just connecting after an OAD send SVC changed
-			if (sendSvcChngdOnNextBoot == TRUE) {
-				/* Warning: This requires -DV41_FEATURES=L2CAP_COC_CFG to be
-				 * defined in the build_config.opt of the stack project
-				 * If L2CAP CoC is not desired comment the following code out
-				 */
-				GAPBondMgr_ServiceChangeInd(pPkt->connectionHandle, TRUE);
-
-				sendSvcChngdOnNextBoot = FALSE;
-			}
 		}
 
 		if (linkDB_NumActive() < MAX_NUM_BLE_CONNS) {
@@ -1289,13 +1268,12 @@ void ProjectZero_clockHandler(UArg arg) {
  *
  * @param pReport pointer to connection event report
  */
-static void ProjectZero_connEvtCB(Gap_ConnEventRpt_t *pReport) {
-	// Enqueue the event for processing in the app context.
-	if (ProjectZero_enqueueMsg(PZ_CONN_EVT, pReport) != SUCCESS) {
-		ICall_free(pReport);
-	}
-}
-
+//static void ProjectZero_connEvtCB(Gap_ConnEventRpt_t *pReport) {
+//	// Enqueue the event for processing in the app context.
+//	if (ProjectZero_enqueueMsg(PZ_CONN_EVT, pReport) != SUCCESS) {
+//		ICall_free(pReport);
+//	}
+//}
 /*********************************************************************
  * @fn      ProjectZero_processCmdCompleteEvt
  *
