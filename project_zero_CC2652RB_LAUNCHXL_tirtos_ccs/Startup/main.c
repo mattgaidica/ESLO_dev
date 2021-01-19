@@ -136,13 +136,6 @@ int main()
     user0Cfg.appServiceInfo->timerTickPeriod = Clock_tickPeriod;
     user0Cfg.appServiceInfo->timerMaxMillisecond = ICall_getMaxMSecs();
 
-    /* Initialize the RTOS Log formatting and output to UART in Idle thread.
-     * Note: Define xdc_runtime_Log_DISABLE_ALL and remove define UARTLOG_ENABLE
-     *       to remove all impact of Log statements.
-     * Note: NULL as Params gives 115200,8,N,1 and Blocking mode */
-//    UART_init();
-//    UartLog_init(UART_open(CONFIG_DISPLAY_UART, NULL));
-
     /* Initialize ICall module */
     ICall_init();
 
