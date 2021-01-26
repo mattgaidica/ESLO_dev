@@ -5,6 +5,11 @@
  @brief This file contains the Project Zero sample application for use
  with the CC2650 Bluetooth Low Energy Protocol Stack.
 
+ !! Highly modified for ESLO
+ Notes
+ _____
+- http://software-dl.ti.com/lprf/simplelink_academy/modules/ble_01_custom_profile/ble_01_custom_profile.html
+
  Group: WCS, BTS
  Target Device: cc13x2_26x2
 
@@ -638,7 +643,6 @@ static uint8_t ProjectZero_processGATTMsg(gattMsgEvent_t *pMsg) {
 		Log_error1("FC Violated: %d", pMsg->msg.flowCtrlEvt.opcode);
 	} else if (pMsg->method == ATT_MTU_UPDATED_EVENT) {
 		// MTU size updated
-//		OAD_setBlockSize(pMsg->msg.mtuEvt.MTU); !!REMOVE
 		Log_info1("MTU Size: %d", pMsg->msg.mtuEvt.MTU);
 	}
 
