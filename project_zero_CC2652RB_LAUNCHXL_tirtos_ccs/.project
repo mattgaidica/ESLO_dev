@@ -67,31 +67,6 @@
 			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/osal/src/inc/osal_snv.h</locationURI>
 		</link>
 		<link>
-			<name>Profiles/button_service.c</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/profiles/project_zero/button_service.c</locationURI>
-		</link>
-		<link>
-			<name>Profiles/button_service.h</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/profiles/project_zero/button_service.h</locationURI>
-		</link>
-		<link>
-			<name>Profiles/data_service.c</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/profiles/project_zero/data_service.c</locationURI>
-		</link>
-		<link>
-			<name>Profiles/data_service.h</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/profiles/project_zero/data_service.h</locationURI>
-		</link>
-		<link>
-			<name>Profiles/devinfoservice.c</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/profiles/dev_info/cc26xx/devinfoservice.c</locationURI>
-		</link>
-		<link>
 			<name>Profiles/devinfoservice.h</name>
 			<type>1</type>
 			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/profiles/dev_info/devinfoservice.h</locationURI>
@@ -115,16 +90,6 @@
 			<name>Profiles/gattservapp_util.c</name>
 			<type>1</type>
 			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/host/gattservapp_util.c</locationURI>
-		</link>
-		<link>
-			<name>Profiles/led_service.c</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/profiles/project_zero/led_service.c</locationURI>
-		</link>
-		<link>
-			<name>Profiles/led_service.h</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/profiles/project_zero/led_service.h</locationURI>
 		</link>
 		<link>
 			<name>Startup/UartLog.c</name>

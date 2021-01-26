@@ -8,7 +8,7 @@
  !! Highly modified for ESLO
  Notes
  _____
-- http://software-dl.ti.com/lprf/simplelink_academy/modules/ble_01_custom_profile/ble_01_custom_profile.html
+ - http://software-dl.ti.com/lprf/simplelink_academy/modules/ble_01_custom_profile/ble_01_custom_profile.html
 
  Group: WCS, BTS
  Target Device: cc13x2_26x2
@@ -30,6 +30,13 @@
 #include <ti/sysbios/knl/Queue.h>
 #include <ti/drivers/utils/List.h>
 
+#include <ti/drivers/ADC.h>
+#include <ti/drivers/Board.h>
+#include <ti/drivers/GPIO.h>
+#include <ti/drivers/SPI.h>
+#include <ti/drivers/I2C.h>
+#include <ti/drivers/Timer.h>
+
 #include <xdc/runtime/Log.h>
 #include <ti/display/AnsiColor.h>
 
@@ -43,7 +50,6 @@
 
 /* Bluetooth Profiles */
 #include <devinfoservice.h>
-#include <profiles/project_zero/button_service.h>
 #include <profiles/project_zero/led_service.h>
 #include <profiles/project_zero/data_service.h>
 
@@ -120,9 +126,6 @@ typedef struct { uint8_t event; void *pData; } pzMsg_t;
 // Struct for message about a pending parameter update request.
 		typedef struct { uint16_t connHandle; } pzSendParamReq_t;
 
-// Struct for message about button state
-		typedef struct { PIN_Id pinId; uint8_t state; } pzButtonState_t;
-
 // Container to store passcode data when passing from gapbondmgr callback
 // to app event. See the pfnPairStateCB_t documentation from the gapbondmgr.h
 // header file for more information on each parameter.
@@ -159,11 +162,7 @@ typedef struct { uint8_t event; void *pData; } pzMsg_t;
 		 */
 // Task configuration
 		Task_Struct pzTask;
-#if defined __TI_COMPILER_VERSION__
-#pragma DATA_ALIGN(appTaskStack, 8)
-#else
-#pragma data_alignment=8
-#endif
+
 		uint8_t appTaskStack[PZ_TASK_STACK_SIZE];
 
 		/*********************************************************************
@@ -192,157 +191,70 @@ typedef struct { uint8_t event; void *pData; } pzMsg_t;
 // List to store connection handles for queued param updates
 		static List_List paramUpdateList;
 
-		/* Pin driver handles */
-		static PIN_Handle buttonPinHandle; static PIN_Handle ledPinHandle;
-
-		/* Global memory storage for a PIN_Config table */
-		static PIN_State buttonPinState; static PIN_State ledPinState;
-
-		/*
-		 * Initial LED pin configuration table
-		 *   - LEDs CONFIG_PIN_RLED & CONFIG_PIN_GLED are off.
-		 */
-		PIN_Config ledPinTable[] = { CONFIG_PIN_RLED | PIN_GPIO_OUTPUT_EN | PIN_GPIO_LOW | PIN_PUSHPULL | PIN_DRVSTR_MAX,
-CONFIG_PIN_GLED | PIN_GPIO_OUTPUT_EN | PIN_GPIO_HIGH | PIN_PUSHPULL |
-PIN_DRVSTR_MAX,
-PIN_TERMINATE
-};
-
-/*
- * Application button pin configuration table:
- *   - Buttons interrupts are configured to trigger on falling edge.
- */
-PIN_Config buttonPinTable[] = {
-CONFIG_PIN_BTN1 | PIN_INPUT_EN | PIN_PULLUP | PIN_IRQ_NEGEDGE,
-CONFIG_PIN_BTN2 | PIN_INPUT_EN | PIN_PULLUP | PIN_IRQ_NEGEDGE,
-PIN_TERMINATE };
-
-// Clock objects for debouncing the buttons
-static Clock_Struct button0DebounceClock;
-static Clock_Struct button1DebounceClock;
-static Clock_Handle button0DebounceClockHandle;
-static Clock_Handle button1DebounceClockHandle;
-
 // Clock instance for RPA read events.
-static Clock_Struct clkRpaRead;
-
-// State of the buttons
-static uint8_t button0State = 0;
-static uint8_t button1State = 0;
+		static Clock_Struct clkRpaRead;
 
 // Address mode
-static GAP_Addr_Modes_t addrMode = DEFAULT_ADDRESS_MODE;
+		static GAP_Addr_Modes_t addrMode = DEFAULT_ADDRESS_MODE;
 
 // Current Random Private Address
-static uint8 rpaAddr[B_ADDR_LEN] = { 0 };
+		static uint8 rpaAddr[B_ADDR_LEN] = { 0 };
 
-/*********************************************************************
- * LOCAL FUNCTIONS
- */
+		/*********************************************************************
+		 * LOCAL FUNCTIONS
+		 */
 
-/* Task functions */
-static void ProjectZero_init(void);
-static void ProjectZero_taskFxn(UArg a0, UArg a1);
+		/* Task functions */
+		static void ProjectZero_init(void); static void ProjectZero_taskFxn(UArg a0, UArg a1);
 
-/* Event message processing functions */
-static void ProjectZero_processStackEvent(uint32_t stack_event);
-static void ProjectZero_processApplicationMessage(pzMsg_t *pMsg);
-static uint8_t ProjectZero_processGATTMsg(gattMsgEvent_t *pMsg);
-static void ProjectZero_processGapMessage(gapEventHdr_t *pMsg);
-static void ProjectZero_processHCIMsg(ICall_HciExtEvt *pMsg);
-static void ProjectZero_processPairState(pzPairStateData_t *pPairState);
-static void ProjectZero_processPasscode(pzPasscodeReq_t *pReq);
-static void ProjectZero_processCmdCompleteEvt(hciEvt_CmdComplete_t *pMsg);
-static void ProjectZero_processAdvEvent(pzGapAdvEventData_t *pEventData);
+		/* Event message processing functions */
+		static void ProjectZero_processStackEvent(uint32_t stack_event); static void ProjectZero_processApplicationMessage(pzMsg_t *pMsg); static uint8_t ProjectZero_processGATTMsg(gattMsgEvent_t *pMsg); static void ProjectZero_processGapMessage(gapEventHdr_t *pMsg); static void ProjectZero_processHCIMsg(ICall_HciExtEvt *pMsg); static void ProjectZero_processPairState(pzPairStateData_t *pPairState); static void ProjectZero_processPasscode(pzPasscodeReq_t *pReq); static void ProjectZero_processCmdCompleteEvt(hciEvt_CmdComplete_t *pMsg); static void ProjectZero_processAdvEvent(pzGapAdvEventData_t *pEventData);
 
-/* Profile value change handlers */
-static void ProjectZero_updateCharVal(pzCharacteristicData_t *pCharData);
-static void ProjectZero_LedService_ValueChangeHandler(
-		pzCharacteristicData_t *pCharData);
-static void ProjectZero_ButtonService_CfgChangeHandler(
-		pzCharacteristicData_t *pCharData);
-static void ProjectZero_DataService_ValueChangeHandler(
-		pzCharacteristicData_t *pCharData);
-static void ProjectZero_DataService_CfgChangeHandler(
-		pzCharacteristicData_t *pCharData);
+		/* Profile value change handlers */
+		static void ProjectZero_updateCharVal(pzCharacteristicData_t *pCharData); static void ProjectZero_LedService_ValueChangeHandler( pzCharacteristicData_t *pCharData); static void ProjectZero_DataService_ValueChangeHandler( pzCharacteristicData_t *pCharData); static void ProjectZero_DataService_CfgChangeHandler( pzCharacteristicData_t *pCharData);
 
-/* Stack or profile callback function */
-static void ProjectZero_advCallback(uint32_t event, void *pBuf, uintptr_t arg);
-static void ProjectZero_passcodeCb(uint8_t *pDeviceAddr, uint16_t connHandle,
-		uint8_t uiInputs, uint8_t uiOutputs, uint32_t numComparison);
-static void ProjectZero_pairStateCb(uint16_t connHandle, uint8_t state,
-		uint8_t status);
+		/* Stack or profile callback function */
+		static void ProjectZero_advCallback(uint32_t event, void *pBuf, uintptr_t arg); static void ProjectZero_passcodeCb(uint8_t *pDeviceAddr, uint16_t connHandle, uint8_t uiInputs, uint8_t uiOutputs, uint32_t numComparison); static void ProjectZero_pairStateCb(uint16_t connHandle, uint8_t state, uint8_t status);
 
-static void ProjectZero_LedService_ValueChangeCB(uint16_t connHandle,
-		uint8_t paramID, uint16_t len, uint8_t *pValue);
-static void ProjectZero_DataService_ValueChangeCB(uint16_t connHandle,
-		uint8_t paramID, uint16_t len, uint8_t *pValue);
-static void ProjectZero_ButtonService_CfgChangeCB(uint16_t connHandle,
-		uint8_t paramID, uint16_t len, uint8_t *pValue);
-static void ProjectZero_DataService_CfgChangeCB(uint16_t connHandle,
-		uint8_t paramID, uint16_t len, uint8_t *pValue);
+		static void ProjectZero_LedService_ValueChangeCB(uint16_t connHandle, uint8_t paramID, uint16_t len, uint8_t *pValue); static void ProjectZero_DataService_ValueChangeCB(uint16_t connHandle, uint8_t paramID, uint16_t len, uint8_t *pValue); static void ProjectZero_DataService_CfgChangeCB(uint16_t connHandle, uint8_t paramID, uint16_t len, uint8_t *pValue);
 
-/* Connection handling functions */
-static uint8_t ProjectZero_getConnIndex(uint16_t connHandle);
-static uint8_t ProjectZero_clearConnListEntry(uint16_t connHandle);
-static uint8_t ProjectZero_addConn(uint16_t connHandle);
-static uint8_t ProjectZero_removeConn(uint16_t connHandle);
-static void ProjectZero_updatePHYStat(uint16_t eventCode, uint8_t *pMsg);
-static void ProjectZero_handleUpdateLinkParamReq(
-		gapUpdateLinkParamReqEvent_t *pReq);
-static void ProjectZero_sendParamUpdate(uint16_t connHandle);
-static void ProjectZero_handleUpdateLinkEvent(gapLinkUpdateEvent_t *pEvt);
+		/* Connection handling functions */
+		static uint8_t ProjectZero_getConnIndex(uint16_t connHandle); static uint8_t ProjectZero_clearConnListEntry(uint16_t connHandle); static uint8_t ProjectZero_addConn(uint16_t connHandle); static uint8_t ProjectZero_removeConn(uint16_t connHandle); static void ProjectZero_updatePHYStat(uint16_t eventCode, uint8_t *pMsg); static void ProjectZero_handleUpdateLinkParamReq( gapUpdateLinkParamReqEvent_t *pReq); static void ProjectZero_sendParamUpdate(uint16_t connHandle); static void ProjectZero_handleUpdateLinkEvent(gapLinkUpdateEvent_t *pEvt);
 #ifdef DEFAULT_SEND_PARAM_UPDATE_REQ
-static void ProjectZero_paramUpdClockHandler(UArg arg);
+		static void ProjectZero_paramUpdClockHandler(UArg arg);
 #endif
-static void ProjectZero_clockHandler(UArg arg);
-static void ProjectZero_processConnEvt(Gap_ConnEventRpt_t *pReport);
+		static void ProjectZero_clockHandler(UArg arg); static void ProjectZero_processConnEvt(Gap_ConnEventRpt_t *pReport);
 
-/* Button handling functions */
-static void buttonDebounceSwiFxn(UArg buttonId);
-static void buttonCallbackFxn(PIN_Handle handle, PIN_Id pinId);
-static void ProjectZero_handleButtonPress(pzButtonState_t *pState);
+		/* Utility functions */
+		static status_t ProjectZero_enqueueMsg(uint8_t event, void *pData); static char* util_arrtohex(uint8_t const *src, uint8_t src_len, uint8_t *dst, uint8_t dst_len, uint8_t reverse); static char* util_getLocalNameStr(const uint8_t *advData, uint8_t len);
 
-/* Utility functions */
-static status_t ProjectZero_enqueueMsg(uint8_t event, void *pData);
-static char* util_arrtohex(uint8_t const *src, uint8_t src_len, uint8_t *dst,
-		uint8_t dst_len, uint8_t reverse);
-static char* util_getLocalNameStr(const uint8_t *advData, uint8_t len);
+		/*********************************************************************
+		 * EXTERN FUNCTIONS
+		 */
+		extern void AssertHandler(uint8_t assertCause, uint8_t assertSubcause);
 
-/*********************************************************************
- * EXTERN FUNCTIONS
- */
-extern void AssertHandler(uint8_t assertCause, uint8_t assertSubcause);
-
-/*********************************************************************
- * PROFILE CALLBACKS
- */
+		/*********************************************************************
+		 * PROFILE CALLBACKS
+		 */
 // GAP Bond Manager Callbacks
-static gapBondCBs_t ProjectZero_BondMgrCBs = { ProjectZero_passcodeCb, // Passcode callback
-		ProjectZero_pairStateCb     // Pairing/Bonding state Callback
+		static gapBondCBs_t ProjectZero_BondMgrCBs = { ProjectZero_passcodeCb, // Passcode callback
+		ProjectZero_pairStateCb// Pairing/Bonding state Callback
 		};
 
-/*
- * Callbacks in the user application for events originating from BLE services.
- */
+		/*
+		 * Callbacks in the user application for events originating from BLE services.
+		 */
 // LED Service callback handler.
 // The type LED_ServiceCBs_t is defined in led_service.h
-static LedServiceCBs_t ProjectZero_LED_ServiceCBs = { .pfnChangeCb =
-		ProjectZero_LedService_ValueChangeCB, // Characteristic value change callback handler
-		.pfnCfgChangeCb = NULL, // No notification-/indication enabled chars in LED Service
-		};
-
-// Button Service callback handler.
-// The type Button_ServiceCBs_t is defined in button_service.h
-static ButtonServiceCBs_t ProjectZero_Button_ServiceCBs = { .pfnChangeCb = NULL, // No writable chars in Button Service, so no change handler.
-		.pfnCfgChangeCb = ProjectZero_ButtonService_CfgChangeCB, // Noti/ind configuration callback handler
+		static LedServiceCBs_t ProjectZero_LED_ServiceCBs = { .pfnChangeCb = ProjectZero_LedService_ValueChangeCB, // Characteristic value change callback handler
+		.pfnCfgChangeCb = NULL,// No notification-/indication enabled chars in LED Service
 		};
 
 // Data Service callback handler.
 // The type Data_ServiceCBs_t is defined in data_service.h
-static DataServiceCBs_t ProjectZero_Data_ServiceCBs = { .pfnChangeCb =
-		ProjectZero_DataService_ValueChangeCB, // Characteristic value change callback handler
-		.pfnCfgChangeCb = ProjectZero_DataService_CfgChangeCB, // Noti/ind configuration callback handler
+		static DataServiceCBs_t ProjectZero_Data_ServiceCBs = { .pfnChangeCb = ProjectZero_DataService_ValueChangeCB, // Characteristic value change callback handler
+		.pfnCfgChangeCb = ProjectZero_DataService_CfgChangeCB
+, // Noti/ind configuration callback handler
 		};
 
 /*********************************************************************
@@ -404,34 +316,7 @@ static void ProjectZero_init(void) {
 	// ******************************************************************
 	// Hardware initialization
 	// ******************************************************************
-
-	// Open LED pins
-	ledPinHandle = PIN_open(&ledPinState, ledPinTable);
-	if (!ledPinHandle) {
-		Log_error0("Error initializing board LED pins");
-		Task_exit();
-	}
-
-	// Open button pins
-	buttonPinHandle = PIN_open(&buttonPinState, buttonPinTable);
-	if (!buttonPinHandle) {
-		Log_error0("Error initializing button pins");
-		Task_exit();
-	}
-
-	// Setup callback for button pins
-	if (PIN_registerIntCb(buttonPinHandle, &buttonCallbackFxn) != 0) {
-		Log_error0("Error registering button callback function");
-		Task_exit();
-	}
-
-	// Create the debounce clock objects for Button 0 and Button 1
-	button0DebounceClockHandle = Util_constructClock(&button0DebounceClock,
-			buttonDebounceSwiFxn, 50, 0, 0,
-			CONFIG_PIN_BTN1);
-	button1DebounceClockHandle = Util_constructClock(&button1DebounceClock,
-			buttonDebounceSwiFxn, 50, 0, 0,
-			CONFIG_PIN_BTN2);
+	GPIO_init();
 
 	// Set the Device Name characteristic in the GAP GATT Service
 	// For more information, see the section in the User's Guide:
@@ -459,13 +344,11 @@ static void ProjectZero_init(void) {
 
 	// Add services to GATT server and give ID of this task for Indication acks.
 	LedService_AddService(selfEntity);
-	ButtonService_AddService(selfEntity);
 	DataService_AddService(selfEntity);
 
 	// Register callbacks with the generated services that
 	// can generate events (writes received) to the application
 	LedService_RegisterAppCBs(&ProjectZero_LED_ServiceCBs);
-	ButtonService_RegisterAppCBs(&ProjectZero_Button_ServiceCBs);
 	DataService_RegisterAppCBs(&ProjectZero_Data_ServiceCBs);
 
 	// Placeholder variable for characteristic intialization
@@ -474,11 +357,6 @@ static void ProjectZero_init(void) {
 
 	// Initalization of characteristics in LED_Service that can provide data.
 	LedService_SetParameter(LS_LED0_ID, LS_LED0_LEN, initVal);
-	LedService_SetParameter(LS_LED1_ID, LS_LED1_LEN, initVal);
-
-	// Initalization of characteristics in Button_Service that can provide data.
-	ButtonService_SetParameter(BS_BUTTON0_ID, BS_BUTTON0_LEN, initVal);
-	ButtonService_SetParameter(BS_BUTTON1_ID, BS_BUTTON1_LEN, initVal);
 
 	// Initalization of characteristics in Data_Service that can provide data.
 	DataService_SetParameter(DS_STRING_ID, sizeof(initString), initString);
@@ -609,7 +487,6 @@ static void ProjectZero_taskFxn(UArg a0, UArg a1) {
 	}
 }
 
-
 /*********************************************************************
  * @fn      ProjectZero_processStackEvent
  *
@@ -691,9 +568,6 @@ static void ProjectZero_processApplicationMessage(pzMsg_t *pMsg) {
 	case PZ_SERVICE_CFG_EVT: /* Message about received CCCD write */
 		/* Call different handler per service */
 		switch (pCharData->svcUUID) {
-		case BUTTON_SERVICE_SERV_UUID:
-			ProjectZero_ButtonService_CfgChangeHandler(pCharData);
-			break;
 		case DATA_SERVICE_SERV_UUID:
 			ProjectZero_DataService_CfgChangeHandler(pCharData);
 			break;
@@ -702,13 +576,6 @@ static void ProjectZero_processApplicationMessage(pzMsg_t *pMsg) {
 
 	case PZ_UPDATE_CHARVAL_EVT: /* Message from ourselves to send  */
 		ProjectZero_updateCharVal(pCharData);
-		break;
-
-	case PZ_BUTTON_DEBOUNCED_EVT: /* Message from swi about pin change */
-	{
-		pzButtonState_t *pButtonState = (pzButtonState_t*) pMsg->pData;
-		ProjectZero_handleButtonPress(pButtonState);
-	}
 		break;
 
 	case PZ_ADV_EVT:
@@ -1569,40 +1436,6 @@ static void ProjectZero_updatePHYStat(uint16_t eventCode, uint8_t *pMsg) {
 }
 
 /*
- * @brief   Handle a debounced button press or release in Task context.
- *          Invoked by the taskFxn based on a message received from a callback.
- *
- * @see     buttonDebounceSwiFxn
- * @see     buttonCallbackFxn
- *
- * @param   pState  pointer to pzButtonState_t message sent from debounce Swi.
- *
- * @return  None.
- */
-static void ProjectZero_handleButtonPress(pzButtonState_t *pState) {
-	Log_info2("%s %s",
-			(uintptr_t)(pState->pinId ==
-					CONFIG_PIN_BTN1 ? "Button 0" : "Button 1"),
-			(uintptr_t)(pState->state ?
-					ANSI_COLOR(FG_GREEN)"pressed"ANSI_COLOR(ATTR_RESET) :
-					ANSI_COLOR(FG_YELLOW)"released"ANSI_COLOR(ATTR_RESET)
-			));
-
-	// Update the service with the new value.
-	// Will automatically send notification/indication if enabled.
-	switch (pState->pinId) {
-	case CONFIG_PIN_BTN1:
-		ButtonService_SetParameter(BS_BUTTON0_ID, sizeof(pState->state),
-				&pState->state);
-		break;
-	case CONFIG_PIN_BTN2:
-		ButtonService_SetParameter(BS_BUTTON1_ID, sizeof(pState->state),
-				&pState->state);
-		break;
-	}
-}
-
-/*
  * @brief   Handle a write request sent from a peer device.
  *
  *          Invoked by the Task based on a message received from a callback.
@@ -1632,84 +1465,14 @@ void ProjectZero_LedService_ValueChangeHandler(
 		// Do something useful with pCharData->data here
 		// -------------------------
 		// Set the output value equal to the received value. 0 is off, not 0 is on
-		PIN_setOutputValue(ledPinHandle, CONFIG_PIN_RLED, pCharData->data[0]);
+		GPIO_write(LED_0, pCharData->data[0]);
 		Log_info2("Turning %s %s",
-				(uintptr_t)ANSI_COLOR(FG_RED)"LED0"ANSI_COLOR(ATTR_RESET),
-				(uintptr_t)(pCharData->data[0] ? "on" : "off"));
-		break;
-
-	case LS_LED1_ID:
-		Log_info3("Value Change msg: %s %s: %s",
-				(uintptr_t)"LED Service",
-				(uintptr_t)"LED1",
-				(uintptr_t)pretty_data_holder);
-
-		// Do something useful with pCharData->data here
-		// -------------------------
-		// Set the output value equal to the received value. 0 is off, not 0 is on
-		PIN_setOutputValue(ledPinHandle, CONFIG_PIN_GLED, pCharData->data[0]);
-		Log_info2("Turning %s %s",
-				(uintptr_t)ANSI_COLOR(FG_GREEN)"LED1"ANSI_COLOR(ATTR_RESET),
+				(uintptr_t)ANSI_COLOR(FG_GREEN)"LED0"ANSI_COLOR(ATTR_RESET),
 				(uintptr_t)(pCharData->data[0] ? "on" : "off"));
 		break;
 
 	default:
 		return;
-	}
-}
-
-/*
- * @brief   Handle a CCCD (configuration change) write received from a peer
- *          device. This tells us whether the peer device wants us to send
- *          Notifications or Indications.
- *
- * @param   pCharData  pointer to malloc'd char write data
- *
- * @return  None.
- */
-void ProjectZero_ButtonService_CfgChangeHandler(
-		pzCharacteristicData_t *pCharData) {
-	// Cast received data to uint16, as that's the format for CCCD writes.
-	uint16_t configValue = *(uint16_t*) pCharData->data;
-	char *configValString;
-
-	// Determine what to tell the user
-	switch (configValue) {
-	case GATT_CFG_NO_OPERATION:
-		configValString = "Noti/Ind disabled";
-		break;
-	case GATT_CLIENT_CFG_NOTIFY:
-		configValString = "Notifications enabled";
-		break;
-	case GATT_CLIENT_CFG_INDICATE:
-		configValString = "Indications enabled";
-		break;
-	default:
-		configValString = "Unsupported operation";
-	}
-
-	switch (pCharData->paramID) {
-	case BS_BUTTON0_ID:
-		Log_info3("CCCD Change msg: %s %s: %s",
-				(uintptr_t)"Button Service",
-				(uintptr_t)"BUTTON0",
-				(uintptr_t)configValString);
-		// -------------------------
-		// Do something useful with configValue here. It tells you whether someone
-		// wants to know the state of this characteristic.
-		// ...
-		break;
-
-	case BS_BUTTON1_ID:
-		Log_info3("CCCD Change msg: %s %s: %s",
-				(uintptr_t)"Button Service",
-				(uintptr_t)"BUTTON1",
-				(uintptr_t)configValString);
-		// -------------------------
-		// Do something useful with configValue here. It tells you whether someone
-		// wants to know the state of this characteristic.
-		// ...
-		break;
 	}
 }
 
@@ -1818,11 +1581,6 @@ static void ProjectZero_updateCharVal(pzCharacteristicData_t *pCharData) {
 	switch (pCharData->svcUUID) {
 	case LED_SERVICE_SERV_UUID:
 		LedService_SetParameter(pCharData->paramID, pCharData->dataLen,
-				pCharData->data);
-		break;
-
-	case BUTTON_SERVICE_SERV_UUID:
-		ButtonService_SetParameter(pCharData->paramID, pCharData->dataLen,
 				pCharData->data);
 		break;
 	}
@@ -1981,37 +1739,6 @@ static void ProjectZero_DataService_ValueChangeCB(uint16_t connHandle,
 }
 
 /*********************************************************************
- * @fn      ProjectZero_ButtonService_CfgChangeCB
- *
- * @brief   Callback for when a peer enables or disables the CCCD attribute,
- *          indicating they are interested in notifications or indications.
- *
- * @param   connHandle - connection handle
- *          paramID - the parameter ID maps to the characteristic written to
- *          len - length of the data written
- *          pValue - pointer to the data written
- */
-static void ProjectZero_ButtonService_CfgChangeCB(uint16_t connHandle,
-		uint8_t paramID, uint16_t len, uint8_t *pValue) {
-	Log_info1("(CB) Button Svc Char config change paramID(%d). "
-			"Sending msg to app.", paramID);
-
-	pzCharacteristicData_t *pValChange = ICall_malloc(
-			sizeof(pzCharacteristicData_t) + len);
-
-	if (pValChange != NULL) {
-		pValChange->svcUUID = BUTTON_SERVICE_SERV_UUID;
-		pValChange->paramID = paramID;
-		memcpy(pValChange->data, pValue, len);
-		pValChange->dataLen = len;
-
-		if (ProjectZero_enqueueMsg(PZ_SERVICE_CFG_EVT, pValChange) != SUCCESS) {
-			ICall_free(pValChange);
-		}
-	}
-}
-
-/*********************************************************************
  * @fn      ProjectZero_DataService_CfgChangeCB
  *
  * @brief   Callback for when a peer enables or disables the CCCD attribute,
@@ -2065,103 +1792,6 @@ static void ProjectZero_paramUpdClockHandler(UArg arg) {
 	}
 }
 #endif
-
-/*********************************************************************
- * @fn     buttonDebounceSwiFxn
- *
- * @brief  Callback from Clock module on timeout
- *
- *         Determines new state after debouncing
- *
- * @param  buttonId    The pin being debounced
- */
-static void buttonDebounceSwiFxn(UArg buttonId) {
-	// Used to send message to app
-	pzButtonState_t buttonMsg = { .pinId = buttonId };
-	uint8_t sendMsg = FALSE;
-
-	// Get current value of the button pin after the clock timeout
-	uint8_t buttonPinVal = PIN_getInputValue(buttonId);
-
-	// Set interrupt direction to opposite of debounced state
-	// If button is now released (button is active low, so release is high)
-	if (buttonPinVal) {
-		// Enable negative edge interrupts to wait for press
-		PIN_setConfig(buttonPinHandle, PIN_BM_IRQ, buttonId | PIN_IRQ_NEGEDGE);
-	} else {
-		// Enable positive edge interrupts to wait for relesae
-		PIN_setConfig(buttonPinHandle, PIN_BM_IRQ, buttonId | PIN_IRQ_POSEDGE);
-	}
-
-	switch (buttonId) {
-	case CONFIG_PIN_BTN1:
-		// If button is now released (buttonPinVal is active low, so release is 1)
-		// and button state was pressed (buttonstate is active high so press is 1)
-		if (buttonPinVal && button0State) {
-			// Button was released
-			buttonMsg.state = button0State = 0;
-			sendMsg = TRUE;
-		} else if (!buttonPinVal && !button0State) {
-			// Button was pressed
-			buttonMsg.state = button0State = 1;
-			sendMsg = TRUE;
-		}
-		break;
-
-	case CONFIG_PIN_BTN2:
-		// If button is now released (buttonPinVal is active low, so release is 1)
-		// and button state was pressed (buttonstate is active high so press is 1)
-		if (buttonPinVal && button1State) {
-			// Button was released
-			buttonMsg.state = button1State = 0;
-			sendMsg = TRUE;
-		} else if (!buttonPinVal && !button1State) {
-			// Button was pressed
-			buttonMsg.state = button1State = 1;
-			sendMsg = TRUE;
-		}
-		break;
-	}
-
-	if (sendMsg == TRUE) {
-		pzButtonState_t *pButtonState = ICall_malloc(sizeof(pzButtonState_t));
-		if (pButtonState != NULL) {
-			*pButtonState = buttonMsg;
-			if (ProjectZero_enqueueMsg(PZ_BUTTON_DEBOUNCED_EVT,
-					pButtonState) != SUCCESS) {
-				ICall_free(pButtonState);
-			}
-		}
-	}
-}
-
-/*********************************************************************
- * @fn     buttonCallbackFxn
- *
- * @brief  Callback from PIN driver on interrupt
- *
- *         Sets in motion the debouncing.
- *
- * @param  handle    The PIN_Handle instance this is about
- * @param  pinId     The pin that generated the interrupt
- */
-static void buttonCallbackFxn(PIN_Handle handle, PIN_Id pinId) {
-	Log_info1("Button interrupt: %s",
-			(uintptr_t)((pinId == CONFIG_PIN_BTN1) ? "Button 0" : "Button 1"));
-
-	// Disable interrupt on that pin for now. Re-enabled after debounce.
-	PIN_setConfig(handle, PIN_BM_IRQ, pinId | PIN_IRQ_DIS);
-
-	// Start debounce timer
-	switch (pinId) {
-	case CONFIG_PIN_BTN1:
-		Util_startClock((Clock_Struct*) button0DebounceClockHandle);
-		break;
-	case CONFIG_PIN_BTN2:
-		Util_startClock((Clock_Struct*) button1DebounceClockHandle);
-		break;
-	}
-}
 
 /******************************************************************************
  *****************************************************************************

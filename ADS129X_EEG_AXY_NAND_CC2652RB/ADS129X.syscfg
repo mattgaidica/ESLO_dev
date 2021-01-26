@@ -119,6 +119,7 @@ GPIO11.$name             = "DEBUG";
 GPIO11.$hardware         = system.deviceData.board.components["BTN-2"];
 GPIO11.interruptTrigger  = "None";
 GPIO11.pinInstance.$name = "CONFIG_PIN_21";
+GPIO11.gpioPin.$assign   = "boosterpack.12";
 
 I2C1.$name                = "CONFIG_I2C_AXY";
 I2C1.i2c.sdaPin.$assign   = "boosterpack.30";
@@ -161,7 +162,6 @@ ADC1.adc.$suggestSolution                   = "ADC0";
 ADC2.adc.$suggestSolution                   = "ADC0";
 GPIO1.gpioPin.$suggestSolution              = "boosterpack.40";
 GPIO4.gpioPin.$suggestSolution              = "boosterpack.38";
-GPIO11.gpioPin.$suggestSolution             = "boosterpack.12";
 I2C1.i2c.$suggestSolution                   = "I2C0";
 SPI1.spi.$suggestSolution                   = "SSI0";
 SPI1.spi.sclkPin.$suggestSolution           = "boosterpack.7";
