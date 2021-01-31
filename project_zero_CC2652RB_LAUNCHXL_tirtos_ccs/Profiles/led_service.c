@@ -49,8 +49,8 @@
  */
 #include <string.h>
 
-//#include <xdc/runtime/Log.h> // Comment this in to use xdc.runtime.Log
-#include <ti/common/cc26xx/uartlog/UartLog.h>  // Comment out if using xdc Log
+#include <xdc/runtime/Log.h> // Comment this in to use xdc.runtime.Log
+//#include <ti/common/cc26xx/uartlog/UartLog.h>  // Comment out if using xdc Log
 
 #include <icall.h>
 

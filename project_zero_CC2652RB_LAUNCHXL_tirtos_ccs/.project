@@ -67,31 +67,6 @@
 			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/osal/src/inc/osal_snv.h</locationURI>
 		</link>
 		<link>
-			<name>Profiles/devinfoservice.h</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/profiles/dev_info/devinfoservice.h</locationURI>
-		</link>
-		<link>
-			<name>Profiles/gatt_profile_uuid.h</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/inc/gatt_profile_uuid.h</locationURI>
-		</link>
-		<link>
-			<name>Profiles/gatt_uuid.c</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/host/gatt_uuid.c</locationURI>
-		</link>
-		<link>
-			<name>Profiles/gatt_uuid.h</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/inc/gatt_uuid.h</locationURI>
-		</link>
-		<link>
-			<name>Profiles/gattservapp_util.c</name>
-			<type>1</type>
-			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/ble5stack/host/gattservapp_util.c</locationURI>
-		</link>
-		<link>
 			<name>Startup/UartLog.c</name>
 			<type>1</type>
 			<locationURI>COM_TI_SIMPLELINK_CC13X2_26X2_SDK_INSTALL_DIR/source/ti/common/cc26xx/uartlog/UartLog.c</locationURI>
