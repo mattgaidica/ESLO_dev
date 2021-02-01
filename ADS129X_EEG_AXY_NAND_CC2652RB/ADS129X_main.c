@@ -423,7 +423,6 @@ void* mainThread(void *arg0) {
 	while (1) {
 		Task_sleep(300000);
 		loopCallback();
-		GPIO_write(LED_0, CONFIG_GPIO_LED_OFF);
 	}
 }
 
