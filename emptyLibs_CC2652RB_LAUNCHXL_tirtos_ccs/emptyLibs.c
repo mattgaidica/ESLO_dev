@@ -52,7 +52,7 @@
 ESLO_ModuleStatus USE_EEG = ESLO_MODULE_OFF;
 ESLO_ModuleStatus USE_XL = ESLO_MODULE_OFF;
 ESLO_ModuleStatus USE_MG = ESLO_MODULE_OFF;
-ESLO_ModuleStatus USE_TIMER = ESLO_MODULE_OFF;
+ESLO_ModuleStatus USE_TIMER = ESLO_MODULE_ON;
 
 /* AXY Vars */
 stmdev_ctx_t dev_ctx_xl;
@@ -257,8 +257,11 @@ void* mainThread(void *arg0) {
 
 	ESLO_startup();
 
+//	return(NULL);
+
 	while (1) {
-		Task_sleep(300000);
-		GPIO_write(LED_0, CONFIG_GPIO_LED_OFF);
+//		Task_sleep(300000);
+////		GPIO_write(LED_0, CONFIG_GPIO_LED_OFF);
+//		GPIO_toggle(LED_0);
 	}
 }

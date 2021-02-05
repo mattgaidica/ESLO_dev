@@ -62,14 +62,14 @@ extern "C" {
  * CONSTANTS
  */
 // Service UUID
-#define LED_SERVICE_SERV_UUID 0x11C0
+#define LED_SERVICE_SERV_UUID 0x1110
 #define LED_SERVICE_SERV_UUID_BASE128(uuid) 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, \
     0x00, 0xB0, 0x00, 0x40, 0x51, 0x04, LO_UINT16(uuid), HI_UINT16(uuid), 0x00, \
     0xF0
 
 // LED0 Characteristic defines
 #define LS_LED0_ID                 0
-#define LS_LED0_UUID               0x1234
+#define LS_LED0_UUID               0x1111
 #define LS_LED0_UUID_BASE128(uuid) 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, \
     0xB0, 0x00, 0x40, 0x51, 0x04, LO_UINT16(uuid), HI_UINT16(uuid), 0x00, 0xF0
 #define LS_LED0_LEN                1

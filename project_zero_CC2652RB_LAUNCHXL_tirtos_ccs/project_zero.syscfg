@@ -47,19 +47,20 @@ const SPI1        = SPI.addInstance();
 const SPI2        = SPI.addInstance();
 const TRNG        = scripting.addModule("/ti/drivers/TRNG");
 const TRNG1       = TRNG.addInstance();
+const Timer       = scripting.addModule("/ti/drivers/Timer", {}, false);
+const Timer1      = Timer.addInstance();
 
 /**
  * Write custom configuration values to the imported modules.
  */
 ble.lockProject                                     = true;
-ble.addressMode                                     = "ADDRMODE_PUBLIC";
 ble.disableDisplayModule                            = true;
 ble.maxPDUSize                                      = 251;
 ble.maxConnNum                                      = 2;
 ble.numOfAdvSets                                    = 1;
 ble.numOfDefAdvSets                                 = 1;
-ble.defaultTxPower                                  = "HCI_EXT_TX_POWER_MINUS_20_DBM";
-ble.deviceName                                      = "ESLO BAW 2";
+ble.addressMode                                     = "ADDRMODE_PUBLIC";
+ble.deviceName                                      = "ESLO BAW11";
 ble.radioConfig.codeExportConfig.$name              = "ti_devices_radioconfig_code_export_param0";
 ble.connUpdateParamsPeripheral.$name                = "ti_ble5stack_general_ble_conn_update_params0";
 ble.connUpdateParamsPeripheral.reqConnTo            = 2000;
@@ -71,7 +72,7 @@ ble.advSet1.advData1.$name                          = "ti_ble5stack_broadcaster_
 ble.advSet1.advData1.GAP_ADTYPE_FLAGS               = true;
 ble.advSet1.advData1.advertisingFlags               = ["GAP_ADTYPE_FLAGS_BREDR_NOT_SUPPORTED","GAP_ADTYPE_FLAGS_GENERAL"];
 ble.advSet1.advData1.GAP_ADTYPE_LOCAL_NAME_COMPLETE = true;
-ble.advSet1.advData1.completeLocalName              = "ESLO BAW 2";
+ble.advSet1.advData1.completeLocalName              = "ESLO BAW11";
 ble.advSet1.scanRes1.$name                          = "ti_ble5stack_broadcaster_advertisement_data1";
 ble.advSet1.scanRes1.GAP_ADTYPE_128BIT_MORE         = true;
 ble.advSet1.scanRes1.numOfUUIDs128More              = 1;
@@ -198,23 +199,27 @@ SPI2.mosiPinInstance.mode  = "Input";
 
 TRNG1.$name = "CONFIG_TRNG_0";
 
+Timer1.$name               = "CONFIG_TIMER_0";
+Timer1.timerInstance.$name = "CONFIG_GPTIMER_0";
+
 /**
  * Pinmux solution for unlocked pins/peripherals. This ensures that minor changes to the automatic solver in a future
  * version of the tool will not impact the pinmux you originally saw.  These lines can be completely deleted in order to
  * re-solve from scratch.
  */
-ADC1.adc.$suggestSolution              = "ADC0";
-ADC2.adc.$suggestSolution              = "ADC0";
-GPIO1.gpioPin.$suggestSolution         = "boosterpack.40";
-GPIO6.gpioPin.$suggestSolution         = "boosterpack.38";
-GPIO7.gpioPin.$suggestSolution         = "boosterpack.9";
-I2C1.i2c.$suggestSolution              = "I2C0";
-SPI1.spi.$suggestSolution              = "SSI0";
-SPI1.spi.sclkPin.$suggestSolution      = "boosterpack.7";
-SPI1.spi.misoPin.$suggestSolution      = "boosterpack.14";
-SPI1.spi.mosiPin.$suggestSolution      = "boosterpack.15";
-SPI1.spi.dmaRxChannel.$suggestSolution = "DMA_CH3";
-SPI1.spi.dmaTxChannel.$suggestSolution = "DMA_CH4";
-SPI2.spi.$suggestSolution              = "SSI1";
-SPI2.spi.dmaRxChannel.$suggestSolution = "DMA_CH16";
-SPI2.spi.dmaTxChannel.$suggestSolution = "DMA_CH17";
+ADC1.adc.$suggestSolution                   = "ADC0";
+ADC2.adc.$suggestSolution                   = "ADC0";
+GPIO1.gpioPin.$suggestSolution              = "boosterpack.40";
+GPIO6.gpioPin.$suggestSolution              = "boosterpack.38";
+GPIO7.gpioPin.$suggestSolution              = "boosterpack.9";
+I2C1.i2c.$suggestSolution                   = "I2C0";
+SPI1.spi.$suggestSolution                   = "SSI0";
+SPI1.spi.sclkPin.$suggestSolution           = "boosterpack.7";
+SPI1.spi.misoPin.$suggestSolution           = "boosterpack.14";
+SPI1.spi.mosiPin.$suggestSolution           = "boosterpack.15";
+SPI1.spi.dmaRxChannel.$suggestSolution      = "DMA_CH3";
+SPI1.spi.dmaTxChannel.$suggestSolution      = "DMA_CH4";
+SPI2.spi.$suggestSolution                   = "SSI1";
+SPI2.spi.dmaRxChannel.$suggestSolution      = "DMA_CH16";
+SPI2.spi.dmaTxChannel.$suggestSolution      = "DMA_CH17";
+Timer1.timerInstance.timer.$suggestSolution = "GPTM0";

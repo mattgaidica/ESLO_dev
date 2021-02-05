@@ -1,8 +1,8 @@
 /**
  * These arguments were used when this file was generated. They will be automatically applied on subsequent loads
  * via the GUI or CLI. Run CLI with '--help' for additional information on how to override these arguments.
- * @cliArgs --board "/ti/boards/CC2652RB_LAUNCHXL" --product "simplelink_cc13x2_26x2_sdk@4.30.00.54"
- * @versions {"data":"2020090214","timestamp":"2020090214","tool":"1.6.0+1543","templates":"2020090214"}
+ * @cliArgs --board "/ti/boards/CC2652RB_LAUNCHXL" --product "simplelink_cc13x2_26x2_sdk@4.40.00.44"
+ * @versions {"data":"2021010520","timestamp":"2021010520","tool":"1.7.0+1746","templates":null}
  */
 
 /**

@@ -68,29 +68,23 @@ extern "C"
     0x00, 0xB0, 0x00, 0x40, 0x51, 0x04, LO_UINT16(uuid), HI_UINT16(uuid), 0x00, \
     0xF0
 
-// String Characteristic defines
-#define DS_STRING_ID                 0
-#define DS_STRING_UUID               0x1131
-#define DS_STRING_UUID_BASE128(uuid) 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, \
-    0xB0, 0x00, 0x40, 0x51, 0x04, LO_UINT16(uuid), HI_UINT16(uuid), 0x00, 0xF0
-#define DS_STRING_LEN                40
-#define DS_STRING_LEN_MIN            0
-
 // Stream Characteristic defines
 #define DS_STREAM_ID                 1
-#define DS_STREAM_UUID               0x1132
+#define DS_STREAM_UUID               0x1131
 #define DS_STREAM_UUID_BASE128(uuid) 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, \
     0xB0, 0x00, 0x40, 0x51, 0x04, LO_UINT16(uuid), HI_UINT16(uuid), 0x00, 0xF0
 #define DS_STREAM_LEN                20
 #define DS_STREAM_LEN_MIN            0
 
-/*********************************************************************
- * TYPEDEFS
- */
+// EEG Characteristic defines
+#define DS_EEG_LEN                248
+#define DS_EEG_LEN_MIN            0
 
-/*********************************************************************
- * MACROS
- */
+#define DS_EEG1_ID                 0
+#define DS_EEG1_UUID               0x1132
+#define DS_EEG1_UUID_BASE128(uuid) 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, \
+    0xB0, 0x00, 0x40, 0x51, 0x04, LO_UINT16(uuid), HI_UINT16(uuid), 0x00, 0xF0
+
 
 /*********************************************************************
  * Profile Callbacks

@@ -9,6 +9,7 @@
  Notes
  _____
  - http://software-dl.ti.com/lprf/simplelink_academy/modules/ble_01_custom_profile/ble_01_custom_profile.html
+ - file:///Users/matt/ti/simplelink_academy_cc13x2_26x2sdk_4_30_01_00/modules/ble5stack/ble_01_basic/ble_01_basic.html
 
  Group: WCS, BTS
  Target Device: cc13x2_26x2
@@ -35,7 +36,6 @@
 #include <ti/drivers/GPIO.h>
 #include <ti/drivers/SPI.h>
 #include <ti/drivers/I2C.h>
-#include <ti/drivers/Timer.h>
 
 #include <xdc/runtime/Log.h>
 #include <ti/display/AnsiColor.h>
@@ -50,8 +50,8 @@
 
 /* Bluetooth Profiles */
 #include <devinfoservice.h>
-#include <profiles/project_zero/led_service.h>
-#include <profiles/project_zero/data_service.h>
+#include <led_service.h>
+#include <data_service.h>
 
 /* Application specific includes */
 #include <ti_drivers_config.h>
@@ -100,6 +100,8 @@
 #define PZ_SEND_PARAM_UPD_EVT    8  /* Request parameter update req be sent        */
 #define PZ_CONN_EVT              9  /* Connection Event End notice                 */
 #define PZ_READ_RPA_EVT         10  /* Read RPA event                              */
+#define NOTIFY_ESLO_EVT			11
+#define NOTIFY_EEG_EVT			12
 
 // Supervision timeout conversion rate to miliseconds
 #define CONN_TIMEOUT_MS_CONVERSION            10
@@ -223,7 +225,7 @@ typedef struct { uint8_t event; void *pData; } pzMsg_t;
 #ifdef DEFAULT_SEND_PARAM_UPDATE_REQ
 		static void ProjectZero_paramUpdClockHandler(UArg arg);
 #endif
-		static void ProjectZero_clockHandler(UArg arg); static void ProjectZero_processConnEvt(Gap_ConnEventRpt_t *pReport);
+		static void ProjectZero_clockHandler(UArg arg); static void ProjectZero_processConnEvt(Gap_ConnEventRpt_t *pReport); // static void ProjectZero_connEvtCB(Gap_ConnEventRpt_t *pReport);
 
 		/* Utility functions */
 		static status_t ProjectZero_enqueueMsg(uint8_t event, void *pData); static char* util_arrtohex(uint8_t const *src, uint8_t src_len, uint8_t *dst, uint8_t dst_len, uint8_t reverse); static char* util_getLocalNameStr(const uint8_t *advData, uint8_t len);
@@ -260,6 +262,33 @@ typedef struct { uint8_t event; void *pData; } pzMsg_t;
 /*********************************************************************
  * PUBLIC FUNCTIONS
  */
+static Clock_Struct clkBTENotify;
+
+void ProjectZero_clockHandler(UArg arg);
+
+ADC_Handle adc;
+ADC_Params adcParams;
+int_fast16_t adcRes;
+uint16_t adcValue0;
+uint32_t adcValue0MicroVolt;
+
+void ProjectZero_notifyHandler(UArg arg) {
+	adcRes = ADC_convert(adc, &adcValue0);
+	if (adcRes == ADC_STATUS_SUCCESS) {
+		// read, multiply by 2 for voltage divider
+		adcValue0MicroVolt = ADC_convertRawToMicroVolts(adc, adcValue0) * 2;
+	}
+	uint8_t advBuffer[4];
+	memcpy(advBuffer, &adcValue0MicroVolt, sizeof(adcValue0MicroVolt));
+	ProjectZero_enqueueMsg(NOTIFY_ESLO_EVT, advBuffer);
+
+	uint8_t eegBuffer[DS_EEG_LEN];
+	int i;
+	for (i = 0; i < DS_EEG_LEN; i++) {
+		eegBuffer[i] = i;
+	}
+//	ProjectZero_enqueueMsg(NOTIFY_EEG_EVT, eegBuffer); // EEG = 1, AXY = 2
+}
 
 /*********************************************************************
  * @fn     project_zero_spin
@@ -283,7 +312,7 @@ static void project_zero_spin(void) {
 void ProjectZero_createTask(void) {
 	Task_Params taskParams;
 
-	// Configure task
+// Configure task
 	Task_Params_init(&taskParams);
 	taskParams.stack = appTaskStack;
 	taskParams.stackSize = PZ_TASK_STACK_SIZE;
@@ -301,29 +330,28 @@ void ProjectZero_createTask(void) {
  *          profile initialization/setup.
  */
 static void ProjectZero_init(void) {
-	// ******************************************************************
-	// NO STACK API CALLS CAN OCCUR BEFORE THIS CALL TO ICall_registerApp
-	// ******************************************************************
-	// Register the current thread as an ICall dispatcher application
-	// so that the application can send and receive messages.
+// ******************************************************************
+// NO STACK API CALLS CAN OCCUR BEFORE THIS CALL TO ICall_registerApp
+// ******************************************************************
+// Register the current thread as an ICall dispatcher application
+// so that the application can send and receive messages.
 	ICall_registerApp(&selfEntity, &syncEvent);
 
-	// Initialize queue for application messages.
-	// Note: Used to transfer control to application thread from e.g. interrupts.
+// Initialize queue for application messages.
+// Note: Used to transfer control to application thread from e.g. interrupts.
 	Queue_construct(&appMsgQueue, NULL);
 	appMsgQueueHandle = Queue_handle(&appMsgQueue);
 
-	// ******************************************************************
-	// Hardware initialization
-	// ******************************************************************
+// ******************************************************************
+// Hardware initialization
+// ******************************************************************
 	GPIO_init();
-
-	// Set the Device Name characteristic in the GAP GATT Service
-	// For more information, see the section in the User's Guide:
-	// http://software-dl.ti.com/lprf/ble5stack-latest/
+// Set the Device Name characteristic in the GAP GATT Service
+// For more information, see the section in the User's Guide:
+// http://software-dl.ti.com/lprf/ble5stack-latest/
 	GGS_SetParameter(GGS_DEVICE_NAME_ATT, GAP_DEVICE_NAME_LEN, attDeviceName);
 
-	// Configure GAP for param update
+// Configure GAP for param update
 	{
 		uint16_t paramUpdateDecision = DEFAULT_PARAM_UPDATE_REQ_DECISION;
 
@@ -331,50 +359,49 @@ static void ProjectZero_init(void) {
 		GAP_SetParamValue(GAP_PARAM_LINK_UPDATE_DECISION, paramUpdateDecision);
 	}
 
-	// Setup the GAP Bond Manager. For more information see the GAP Bond Manager
-	// section in the User's Guide
+// Setup the GAP Bond Manager. For more information see the GAP Bond Manager
+// section in the User's Guide
 	setBondManagerParameters();
 
-	// ******************************************************************
-	// BLE Service initialization
-	// ******************************************************************
+// ******************************************************************
+// BLE Service initialization
+// ******************************************************************
 	GGS_AddService(GATT_ALL_SERVICES);// GAP GATT Service
-	GATTServApp_AddService(GATT_ALL_SERVICES); // GATT Service
-	DevInfo_AddService();                      // Device Information Service
+	GATTServApp_AddService(GATT_ALL_SERVICES);	// GATT Service
+	DevInfo_AddService();	// Device Information Service
 
-	// Add services to GATT server and give ID of this task for Indication acks.
+// Add services to GATT server and give ID of this task for Indication acks.
 	LedService_AddService(selfEntity);
 	DataService_AddService(selfEntity);
 
-	// Register callbacks with the generated services that
-	// can generate events (writes received) to the application
+// Register callbacks with the generated services that
+// can generate events (writes received) to the application
 	LedService_RegisterAppCBs(&ProjectZero_LED_ServiceCBs);
 	DataService_RegisterAppCBs(&ProjectZero_Data_ServiceCBs);
 
-	// Placeholder variable for characteristic intialization
-	uint8_t initVal[40] = { 0 };
-	uint8_t initString[] = "This is a pretty long string, isn't it!";
-
-	// Initalization of characteristics in LED_Service that can provide data.
+// Placeholder variable for characteristic intialization
+	uint8_t initVal[20] = { 0 };
+	uint8_t initEEG[DS_EEG_LEN] = { 0 };
+// Initalization of characteristics in LED_Service that can provide data.
 	LedService_SetParameter(LS_LED0_ID, LS_LED0_LEN, initVal);
 
-	// Initalization of characteristics in Data_Service that can provide data.
-	DataService_SetParameter(DS_STRING_ID, sizeof(initString), initString);
+// Initalization of characteristics in Data_Service that can provide data.
+	DataService_SetParameter(DS_EEG1_ID, sizeof(initEEG), initEEG);
 	DataService_SetParameter(DS_STREAM_ID, DS_STREAM_LEN, initVal);
 
-	// Start Bond Manager and register callback
+// Start Bond Manager and register callback
 	VOID GAPBondMgr_Register(&ProjectZero_BondMgrCBs);
 
-	// Register with GAP for HCI/Host messages. This is needed to receive HCI
-	// events. For more information, see the HCI section in the User's Guide:
-	// http://software-dl.ti.com/lprf/ble5stack-latest/
+// Register with GAP for HCI/Host messages. This is needed to receive HCI
+// events. For more information, see the HCI section in the User's Guide:
+// http://software-dl.ti.com/lprf/ble5stack-latest/
 	GAP_RegisterForMsgs(selfEntity);
 
-	// Register for GATT local events and ATT Responses pending for transmission
+// Register for GATT local events and ATT Responses pending for transmission
 	GATT_RegisterForMsgs(selfEntity);
 
-	// Set default values for Data Length Extension
-	// Extended Data Length Feature is already enabled by default
+// Set default values for Data Length Extension
+// Extended Data Length Feature is already enabled by default
 	{
 		// Set initial values to maximum, RX is set to max. by default(251 octets, 2120us)
 		// Some brand smartphone is essentially needing 251/2120, so we set them here.
@@ -388,15 +415,26 @@ static void ProjectZero_init(void) {
 				APP_SUGGESTED_TX_TIME);
 	}
 
-	// Initialize GATT Client, used by GAPBondMgr to look for RPAO characteristic for network privacy
+// Initialize GATT Client, used by GAPBondMgr to look for RPAO characteristic for network privacy
 	GATT_InitClient();
 
-	// Initialize Connection List
+// Initialize Connection List
 	ProjectZero_clearConnListEntry(LINKDB_CONNHANDLE_ALL);
 
-	//Initialize GAP layer for Peripheral role and register to receive GAP events
+//Initialize GAP layer for Peripheral role and register to receive GAP events
 	GAP_DeviceInit(GAP_PROFILE_PERIPHERAL, selfEntity, addrMode,
 			&pRandomAddress);
+
+	ADC_init();
+	ADC_Params_init(&adcParams);
+	adc = ADC_open(R_VBATT, &adcParams);
+	if (adc == NULL) {
+		while (1) {
+		}
+	}
+
+	Util_constructClock(&clkBTENotify, ProjectZero_notifyHandler, 1000, 1000,
+	false, 0x00);
 }
 
 /*********************************************************************
@@ -407,10 +445,10 @@ static void ProjectZero_init(void) {
  * @param   a0, a1 - not used.
  */
 static void ProjectZero_taskFxn(UArg a0, UArg a1) {
-	// Initialize application
+// Initialize application
 	ProjectZero_init();
 
-	// Application main loop
+// Application main loop
 	for (;;) {
 		uint32_t events;
 
@@ -455,6 +493,7 @@ static void ProjectZero_taskFxn(UArg a0, UArg a1) {
 							ProjectZero_processHCIMsg(pMsg);
 							break;
 
+							// NOT USED
 //						case L2CAP_SIGNAL_EVENT:
 //							// Process L2CAP free buffer notification
 //							ProjectZero_processL2CAPMsg(
@@ -498,7 +537,7 @@ static void ProjectZero_taskFxn(UArg a0, UArg a1) {
  * @return  none
  */
 static void ProjectZero_processStackEvent(uint32_t stack_event) {
-	// Intentionally blank
+// Intentionally blank
 }
 
 /*********************************************************************
@@ -523,10 +562,10 @@ static uint8_t ProjectZero_processGATTMsg(gattMsgEvent_t *pMsg) {
 		Log_info1("MTU Size: %d", pMsg->msg.mtuEvt.MTU);
 	}
 
-	// Free message payload. Needed only for ATT Protocol messages
+// Free message payload. Needed only for ATT Protocol messages
 	GATT_bm_free(&pMsg->msg, pMsg->method);
 
-	// It's safe to free the incoming message
+// It's safe to free the incoming message
 	return (TRUE);
 }
 
@@ -545,7 +584,7 @@ static uint8_t ProjectZero_processGATTMsg(gattMsgEvent_t *pMsg) {
  * @param   pMsg  Pointer to the message of type pzMsg_t.
  */
 static void ProjectZero_processApplicationMessage(pzMsg_t *pMsg) {
-	// Cast to pzCharacteristicData_t* here since it's a common message pdu type.
+// Cast to pzCharacteristicData_t* here since it's a common message pdu type.
 	pzCharacteristicData_t *pCharData = (pzCharacteristicData_t*) pMsg->pData;
 
 	switch (pMsg->event) {
@@ -632,6 +671,12 @@ static void ProjectZero_processApplicationMessage(pzMsg_t *pMsg) {
 			}
 		}
 		break;
+	}
+	case NOTIFY_ESLO_EVT: {
+		DataService_SetParameter(DS_STREAM_ID, 4, (uint8_t*) (pMsg->pData));
+	}
+	case NOTIFY_EEG_EVT: {
+		DataService_SetParameter(DS_EEG1_ID, DS_EEG_LEN, (uint8_t*) (pMsg->pData));
 	}
 	default:
 		break;
@@ -805,20 +850,20 @@ static void ProjectZero_processGapMessage(gapEventHdr_t *pMsg) {
 		break;
 
 #if defined ( NOTIFY_PARAM_UPDATE_RJCT )
-    case GAP_LINK_PARAM_UPDATE_REJECT_EVENT:
-        {
-          linkDBInfo_t linkInfo;
-          gapLinkUpdateEvent_t *pPkt = (gapLinkUpdateEvent_t *)pMsg;
+		case GAP_LINK_PARAM_UPDATE_REJECT_EVENT:
+		{
+			linkDBInfo_t linkInfo;
+			gapLinkUpdateEvent_t *pPkt = (gapLinkUpdateEvent_t *)pMsg;
 
-          // Get the address from the connection handle
-          linkDB_GetInfo(pPkt->connectionHandle, &linkInfo);
+			// Get the address from the connection handle
+			linkDB_GetInfo(pPkt->connectionHandle, &linkInfo);
 
-          // Display the address of the connection update failure
-          Log_info2("Peer Device's Update Request Rejected 0x%x: %s", pPkt->opcode,
-                     Util_convertBdAddr2Str(linkInfo.addr));
+			// Display the address of the connection update failure
+			Log_info2("Peer Device's Update Request Rejected 0x%x: %s", pPkt->opcode,
+					Util_convertBdAddr2Str(linkInfo.addr));
 
-          break;
-        }
+			break;
+		}
 #endif
 
 	default:
@@ -829,7 +874,7 @@ static void ProjectZero_processGapMessage(gapEventHdr_t *pMsg) {
 void ProjectZero_processHCIMsg(ICall_HciExtEvt *pEvt) {
 	ICall_Hdr *pMsg = (ICall_Hdr*) pEvt;
 
-	// Process HCI message
+// Process HCI message
 	switch (pMsg->status) {
 	case HCI_COMMAND_COMPLETE_EVENT_CODE:
 		// Process HCI Command Complete Events here
@@ -946,8 +991,8 @@ static void ProjectZero_processAdvEvent(pzGapAdvEventData_t *pEventData) {
 		break;
 	}
 
-	// All events have associated memory to free except the insufficient memory
-	// event
+// All events have associated memory to free except the insufficient memory
+// event
 	if (pEventData->event != GAP_EVT_INSUFFICIENT_MEMORY) {
 		ICall_free(pEventData->pBuf);
 	}
@@ -1010,7 +1055,7 @@ static void ProjectZero_processPasscode(pzPasscodeReq_t *pReq) {
 			(uintptr_t)(pReq->uiInputs ? "Sending" : "Displaying"),
 			B_APP_DEFAULT_PASSCODE);
 
-	// Send passcode response.
+// Send passcode response.
 	GAPBondMgr_PasscodeRsp(pReq->connHandle, SUCCESS, B_APP_DEFAULT_PASSCODE);
 }
 /*********************************************************************
@@ -1025,7 +1070,7 @@ static void ProjectZero_processConnEvt(Gap_ConnEventRpt_t *pReport) {
 	 * that we are not waiting to send data before restarting
 	 */
 
-	// Process connection events normally
+// Process connection events normally
 	Log_info1("Connection event done for connHandle: %d", pReport->handle);
 }
 /*********************************************************************
@@ -1054,6 +1099,7 @@ void ProjectZero_clockHandler(UArg arg) {
 	}
 }
 
+// !! NOT USED
 /*********************************************************************
  * @fn      ProjectZero_connEvtCB
  *
@@ -1062,7 +1108,7 @@ void ProjectZero_clockHandler(UArg arg) {
  * @param pReport pointer to connection event report
  */
 //static void ProjectZero_connEvtCB(Gap_ConnEventRpt_t *pReport) {
-//	// Enqueue the event for processing in the app context.
+//// Enqueue the event for processing in the app context.
 //	if (ProjectZero_enqueueMsg(PZ_CONN_EVT, pReport) != SUCCESS) {
 //		ICall_free(pReport);
 //	}
@@ -1077,7 +1123,7 @@ void ProjectZero_clockHandler(UArg arg) {
 static void ProjectZero_processCmdCompleteEvt(hciEvt_CmdComplete_t *pMsg) {
 	uint8_t status = pMsg->pReturnParam[0];
 
-	//Find which command this command complete is for
+//Find which command this command complete is for
 	switch (pMsg->cmdOpcode) {
 	case HCI_READ_RSSI: {
 		int8 rssi = (int8) pMsg->pReturnParam[3];
@@ -1122,8 +1168,8 @@ static void ProjectZero_handleUpdateLinkParamReq(
 	rsp.connectionHandle = pReq->req.connectionHandle;
 	rsp.signalIdentifier = pReq->req.signalIdentifier;
 
-	// Only accept connection intervals with slave latency of 0
-	// This is just an example of how the application can send a response
+// Only accept connection intervals with slave latency of 0
+// This is just an example of how the application can send a response
 	if (pReq->req.connLatency == 0) {
 		rsp.intervalMin = pReq->req.intervalMin;
 		rsp.intervalMax = pReq->req.intervalMax;
@@ -1134,7 +1180,7 @@ static void ProjectZero_handleUpdateLinkParamReq(
 		rsp.accepted = FALSE;
 	}
 
-	// Send Reply
+// Send Reply
 	VOID GAP_UpdateLinkParamReqReply(&rsp);
 }
 
@@ -1146,7 +1192,7 @@ static void ProjectZero_handleUpdateLinkParamReq(
  * @param   pEvt - pointer to stack event message
  */
 static void ProjectZero_handleUpdateLinkEvent(gapLinkUpdateEvent_t *pEvt) {
-	// Get the address from the connection handle
+// Get the address from the connection handle
 	linkDBInfo_t linkInfo;
 	linkDB_GetInfo(pEvt->connectionHandle, &linkInfo);
 
@@ -1169,7 +1215,7 @@ static void ProjectZero_handleUpdateLinkEvent(gapLinkUpdateEvent_t *pEvt) {
 		Log_info2("Update Failed 0x%02x: %s", pEvt->opcode, (uintptr_t)addrStr);
 	}
 
-	// Check if there are any queued parameter updates
+// Check if there are any queued parameter updates
 	pzConnHandleEntry_t *connHandleEntry = (pzConnHandleEntry_t*) List_get(
 			&paramUpdateList);
 	if (connHandleEntry != NULL) {
@@ -1195,7 +1241,7 @@ static uint8_t ProjectZero_addConn(uint16_t connHandle) {
 	uint8_t i;
 	uint8_t status = bleNoResources;
 
-	// Try to find an available entry
+// Try to find an available entry
 	for (i = 0; i < MAX_NUM_BLE_CONNS; i++) {
 		if (connList[i].connHandle == LINKDB_CONNHANDLE_INVALID) {
 			// Found available entry to put a new connection info in
@@ -1258,7 +1304,7 @@ static uint8_t ProjectZero_getConnIndex(uint16_t connHandle) {
  */
 static uint8_t ProjectZero_clearConnListEntry(uint16_t connHandle) {
 	uint8_t i;
-	// Set to invalid connection index initially
+// Set to invalid connection index initially
 	uint8_t connIndex = MAX_NUM_BLE_CONNS;
 
 	if (connHandle != LINKDB_CONNHANDLE_ALL) {
@@ -1269,7 +1315,7 @@ static uint8_t ProjectZero_clearConnListEntry(uint16_t connHandle) {
 		}
 	}
 
-	// Clear specific handle or all handles
+// Clear specific handle or all handles
 	for (i = 0; i < MAX_NUM_BLE_CONNS; i++) {
 		if ((connIndex == i) || (connHandle == LINKDB_CONNHANDLE_ALL)) {
 			connList[i].connHandle = LINKDB_CONNHANDLE_INVALID;
@@ -1340,16 +1386,16 @@ static void ProjectZero_sendParamUpdate(uint16_t connHandle) {
 	connIndex = ProjectZero_getConnIndex(connHandle);
 	APP_ASSERT(connIndex < MAX_NUM_BLE_CONNS);
 
-	// Deconstruct the clock object
+// Deconstruct the clock object
 	Clock_destruct(connList[connIndex].pUpdateClock);
-	// Free clock struct
+// Free clock struct
 	ICall_free(connList[connIndex].pUpdateClock);
 	connList[connIndex].pUpdateClock = NULL;
 
-	// Send parameter update
+// Send parameter update
 	bStatus_t status = GAP_UpdateLinkParamReq(&req);
 
-	// If there is an ongoing update, queue this for when the update completes
+// If there is an ongoing update, queue this for when the update completes
 	if (status == bleAlreadyInRequestedMode) {
 		pzConnHandleEntry_t *connHandleEntry = ICall_malloc(
 				sizeof(pzConnHandleEntry_t));
@@ -1491,24 +1537,24 @@ void ProjectZero_LedService_ValueChangeHandler(
  */
 void ProjectZero_DataService_ValueChangeHandler(
 		pzCharacteristicData_t *pCharData) {
-	// Value to hold the received string for printing via Log, as Log printouts
-	// happen in the Idle task, and so need to refer to a global/static variable.
-	static uint8_t received_string[DS_STRING_LEN] = { 0 };
+// Value to hold the received string for printing via Log, as Log printouts
+// happen in the Idle task, and so need to refer to a global/static variable.
+	static uint8_t received_eeg[DS_EEG_LEN] = { 0 };
 
 	switch (pCharData->paramID) {
-	case DS_STRING_ID:
+	case DS_EEG1_ID:
 		// Do something useful with pCharData->data here
 		// -------------------------
 		// Copy received data to holder array, ensuring NULL termination.
-		memset(received_string, 0, DS_STRING_LEN);
-		memcpy(received_string, pCharData->data,
-				MIN(pCharData->dataLen, DS_STRING_LEN - 1));
+		memset(received_eeg, 0, DS_EEG_LEN);
+		memcpy(received_eeg, pCharData->data,
+				MIN(pCharData->dataLen, DS_EEG_LEN - 1));
 		// Needed to copy before log statement, as the holder array remains after
 		// the pCharData message has been freed and reused for something else.
 		Log_info3("Value Change msg: %s %s: %s",
 				(uintptr_t)"Data Service",
-				(uintptr_t)"String",
-				(uintptr_t)received_string);
+				(uintptr_t)"EEG",
+				(uintptr_t)received_eeg);
 		break;
 
 	case DS_STREAM_ID:
@@ -1518,6 +1564,8 @@ void ProjectZero_DataService_ValueChangeHandler(
 				pCharData->data[2]);
 		// -------------------------
 		// Do something useful with pCharData->data here
+//		DataService_SetParameter(DS_STREAM_ID, pCharData->dataLen,
+//				&pCharData->data);
 		break;
 
 	default:
@@ -1536,17 +1584,23 @@ void ProjectZero_DataService_ValueChangeHandler(
  */
 void ProjectZero_DataService_CfgChangeHandler(
 		pzCharacteristicData_t *pCharData) {
-	// Cast received data to uint16, as that's the format for CCCD writes.
+// Cast received data to uint16, as that's the format for CCCD writes.
 	uint16_t configValue = *(uint16_t*) pCharData->data;
 	char *configValString;
 
-	// Determine what to tell the user
+// Determine what to tell the user
 	switch (configValue) {
 	case GATT_CFG_NO_OPERATION:
 		configValString = "Noti/Ind disabled";
+		if (Util_isActive(&clkBTENotify) == true) {
+			Util_stopClock(&clkBTENotify);
+		}
 		break;
 	case GATT_CLIENT_CFG_NOTIFY:
 		configValString = "Notifications enabled";
+		if (Util_isActive(&clkBTENotify) == false) {
+			Util_startClock(&clkBTENotify);
+		}
 		break;
 	case GATT_CLIENT_CFG_INDICATE:
 		configValString = "Indications enabled";
@@ -1565,6 +1619,13 @@ void ProjectZero_DataService_CfgChangeHandler(
 		// Do something useful with configValue here. It tells you whether someone
 		// wants to know the state of this characteristic.
 		// ...
+		break;
+
+	case DS_EEG1_ID:
+		Log_info3("CCCD Change msg: %s %s: %s",
+				(uintptr_t)"Data Service",
+				(uintptr_t)"EEG1",
+				(uintptr_t)configValString);
 		break;
 	}
 }
@@ -1688,7 +1749,7 @@ static void ProjectZero_passcodeCb(uint8_t *pDeviceAddr, uint16_t connHandle,
  */
 static void ProjectZero_LedService_ValueChangeCB(uint16_t connHandle,
 		uint8_t paramID, uint16_t len, uint8_t *pValue) {
-	// See the service header file to compare paramID with characteristic.
+// See the service header file to compare paramID with characteristic.
 	Log_info1("(CB) LED Svc Characteristic value change: paramID(%d). "
 			"Sending msg to app.", paramID);
 
@@ -1719,7 +1780,7 @@ static void ProjectZero_LedService_ValueChangeCB(uint16_t connHandle,
  */
 static void ProjectZero_DataService_ValueChangeCB(uint16_t connHandle,
 		uint8_t paramID, uint16_t len, uint8_t *pValue) {
-	// See the service header file to compare paramID with characteristic.
+// See the service header file to compare paramID with characteristic.
 	Log_info1("(CB) Data Svc Characteristic value change: paramID(%d). "
 			"Sending msg to app.", paramID);
 
