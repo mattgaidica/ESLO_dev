@@ -287,7 +287,7 @@ void ProjectZero_notifyHandler(UArg arg) {
 	for (i = 0; i < DS_EEG_LEN; i++) {
 		eegBuffer[i] = i;
 	}
-//	ProjectZero_enqueueMsg(NOTIFY_EEG_EVT, eegBuffer); // EEG = 1, AXY = 2
+	ProjectZero_enqueueMsg(NOTIFY_EEG_EVT, eegBuffer); // EEG = 1, AXY = 2
 }
 
 /*********************************************************************
@@ -433,7 +433,7 @@ static void ProjectZero_init(void) {
 		}
 	}
 
-	Util_constructClock(&clkBTENotify, ProjectZero_notifyHandler, 1000, 1000,
+	Util_constructClock(&clkBTENotify, ProjectZero_notifyHandler, 1000, 100,
 	false, 0x00);
 }
 
@@ -674,9 +674,11 @@ static void ProjectZero_processApplicationMessage(pzMsg_t *pMsg) {
 	}
 	case NOTIFY_ESLO_EVT: {
 		DataService_SetParameter(DS_STREAM_ID, 4, (uint8_t*) (pMsg->pData));
+		break;
 	}
 	case NOTIFY_EEG_EVT: {
 		DataService_SetParameter(DS_EEG1_ID, DS_EEG_LEN, (uint8_t*) (pMsg->pData));
+		break;
 	}
 	default:
 		break;
