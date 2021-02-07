@@ -34,7 +34,6 @@ const GPIO8       = GPIO.addInstance();
 const GPIO9       = GPIO.addInstance();
 const GPIO10      = GPIO.addInstance();
 const GPIO11      = GPIO.addInstance();
-const GPIO12      = GPIO.addInstance();
 const I2C         = scripting.addModule("/ti/drivers/I2C", {}, false);
 const I2C1        = I2C.addInstance();
 const NVS         = scripting.addModule("/ti/drivers/NVS");
@@ -135,33 +134,30 @@ GPIO6.outputStrength     = "Low";
 GPIO6.initialOutputState = "High";
 GPIO6.pinInstance.$name  = "CONFIG_PIN_3";
 
-GPIO7.$name             = "CONFIG_GPIO_0";
-GPIO7.pinInstance.$name = "CONFIG_PIN_7";
+GPIO7.$name             = "_EEG_DRDY";
+GPIO7.gpioPin.$assign   = "boosterpack.2";
+GPIO7.pinInstance.$name = "CONFIG_PIN_8";
 
-GPIO8.$name             = "_EEG_DRDY";
-GPIO8.gpioPin.$assign   = "boosterpack.2";
-GPIO8.pinInstance.$name = "CONFIG_PIN_8";
+GPIO8.$name             = "AXY_MAG";
+GPIO8.gpioPin.$assign   = "boosterpack.10";
+GPIO8.pinInstance.$name = "CONFIG_PIN_9";
 
-GPIO9.$name             = "AXY_MAG";
-GPIO9.gpioPin.$assign   = "boosterpack.10";
-GPIO9.pinInstance.$name = "CONFIG_PIN_9";
+GPIO9.$name             = "AXT_INT1";
+GPIO9.gpioPin.$assign   = "boosterpack.19";
+GPIO9.pinInstance.$name = "CONFIG_PIN_10";
 
-GPIO10.$name             = "AXT_INT1";
-GPIO10.gpioPin.$assign   = "boosterpack.19";
-GPIO10.pinInstance.$name = "CONFIG_PIN_10";
+GPIO10.$name             = "AXY_INT2";
+GPIO10.$hardware         = system.deviceData.board.components["BTN-1"];
+GPIO10.pull              = "None";
+GPIO10.interruptTrigger  = "None";
+GPIO10.pinInstance.$name = "CONFIG_PIN_11";
+GPIO10.gpioPin.$assign   = "boosterpack.13";
 
-GPIO11.$name             = "AXY_INT2";
-GPIO11.$hardware         = system.deviceData.board.components["BTN-1"];
-GPIO11.pull              = "None";
+GPIO11.$name             = "DEBUG";
+GPIO11.$hardware         = system.deviceData.board.components["BTN-2"];
 GPIO11.interruptTrigger  = "None";
-GPIO11.pinInstance.$name = "CONFIG_PIN_11";
-GPIO11.gpioPin.$assign   = "boosterpack.13";
-
-GPIO12.$name             = "DEBUG";
-GPIO12.$hardware         = system.deviceData.board.components["BTN-2"];
-GPIO12.interruptTrigger  = "None";
-GPIO12.pinInstance.$name = "CONFIG_PIN_12";
-GPIO12.gpioPin.$assign   = "boosterpack.12";
+GPIO11.pinInstance.$name = "CONFIG_PIN_12";
+GPIO11.gpioPin.$assign   = "boosterpack.12";
 
 I2C1.$name                = "CONFIG_I2C_AXY";
 I2C1.i2c.sdaPin.$assign   = "boosterpack.30";
@@ -212,7 +208,6 @@ ADC1.adc.$suggestSolution                   = "ADC0";
 ADC2.adc.$suggestSolution                   = "ADC0";
 GPIO1.gpioPin.$suggestSolution              = "boosterpack.40";
 GPIO6.gpioPin.$suggestSolution              = "boosterpack.38";
-GPIO7.gpioPin.$suggestSolution              = "boosterpack.9";
 I2C1.i2c.$suggestSolution                   = "I2C0";
 SPI1.spi.$suggestSolution                   = "SSI0";
 SPI1.spi.sclkPin.$suggestSolution           = "boosterpack.7";
