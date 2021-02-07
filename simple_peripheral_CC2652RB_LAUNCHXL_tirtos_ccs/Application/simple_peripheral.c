@@ -10,7 +10,7 @@
 
  ******************************************************************************
  
- Copyright (c) 2013-2020, Texas Instruments Incorporated
+ Copyright (c) 2013-2021, Texas Instruments Incorporated
  All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
@@ -57,7 +57,7 @@
 
 #include <ti/display/Display.h>
 
-#if !(defined __TI_COMPILER_VERSION__)
+#if (!(defined __TI_COMPILER_VERSION__) && !(defined __GNUC__))
 #include <intrinsics.h>
 #endif
 
@@ -599,7 +599,7 @@ static void SimplePeripheral_init(void)
   }
 
   // Initialize GATT Client
-  GATT_InitClient();
+  GATT_InitClient("");
 
   // Init key debouncer
   Board_initKeys(SimplePeripheral_keyChangeHandler);
@@ -1101,7 +1101,7 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg)
 
       BLE_LOG_INT_TIME(0, BLE_LOG_MODULE_APP, "APP : ---- got GAP_LINK_ESTABLISHED_EVENT", 0);
       // Display the amount of current connections
-      uint8_t numActive = linkDB_NumActive();
+      uint8_t numActive = linkDB_NumActive("");
       Display_printf(dispHandle, SP_ROW_STATUS_2, 0, "Num Conns: %d",
                      (uint16_t)numActive);
 
@@ -1140,7 +1140,7 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg)
       gapTerminateLinkEvent_t *pPkt = (gapTerminateLinkEvent_t *)pMsg;
 
       // Display the amount of current connections
-      uint8_t numActive = linkDB_NumActive();
+      uint8_t numActive = linkDB_NumActive("");
       Display_printf(dispHandle, SP_ROW_STATUS_1, 0, "Device Disconnected!");
       Display_printf(dispHandle, SP_ROW_STATUS_2, 0, "Num Conns: %d",
                      (uint16_t)numActive);
@@ -2486,7 +2486,7 @@ static void SimplePeripheral_updatePHYStat(uint16_t eventCode, uint8_t *pMsg)
 static void SimplePeripheral_menuSwitchCb(tbmMenuObj_t* pMenuObjCurr,
                                        tbmMenuObj_t* pMenuObjNext)
 {
-  uint8_t NUMB_ACTIVE_CONNS = linkDB_NumActive();
+  uint8_t NUMB_ACTIVE_CONNS = linkDB_NumActive("");
 
   // interested in only the events of
   // entering scMenuConnect, spMenuSelectConn, and scMenuMain for now

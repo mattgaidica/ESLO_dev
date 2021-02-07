@@ -61,6 +61,7 @@ ble.numOfAdvSets                                    = 1;
 ble.numOfDefAdvSets                                 = 1;
 ble.addressMode                                     = "ADDRMODE_PUBLIC";
 ble.deviceName                                      = "ESLO BAW11";
+ble.maxPDUNum                                       = 8;
 ble.radioConfig.codeExportConfig.$name              = "ti_devices_radioconfig_code_export_param0";
 ble.connUpdateParamsPeripheral.$name                = "ti_ble5stack_general_ble_conn_update_params0";
 ble.connUpdateParamsPeripheral.reqConnTo            = 2000;

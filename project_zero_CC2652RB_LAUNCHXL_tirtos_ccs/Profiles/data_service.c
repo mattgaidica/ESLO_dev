@@ -282,6 +282,12 @@ bStatus_t DataService_SetParameter(uint8_t param, uint16_t len, void *value) {
 		attrConfig = ds_EEGConfig;
 		needAuth = FALSE;
 		Log_info2("SetParameter : %s len: %d", (uintptr_t)"EEG", len);
+
+		uint8_t test[8];
+		memcpy(test, value, 8);
+		if(test[4] != 1) {
+			test[0] = test[0];
+		}
 		break;
 
 	case DS_STREAM_ID:

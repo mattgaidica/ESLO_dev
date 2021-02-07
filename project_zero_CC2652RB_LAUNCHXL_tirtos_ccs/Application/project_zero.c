@@ -280,12 +280,14 @@ void ProjectZero_notifyHandler(UArg arg) {
 	}
 	uint8_t advBuffer[4];
 	memcpy(advBuffer, &adcValue0MicroVolt, sizeof(adcValue0MicroVolt));
-	ProjectZero_enqueueMsg(NOTIFY_ESLO_EVT, advBuffer);
+//	ProjectZero_enqueueMsg(NOTIFY_ESLO_EVT, advBuffer);
 
-	uint8_t eegBuffer[DS_EEG_LEN];
+	uint8_t eegBuffer[DS_EEG_LEN] = {0};
 	int i;
-	for (i = 0; i < DS_EEG_LEN; i++) {
-		eegBuffer[i] = i;
+	int j = 0;
+	for (i = 0; i < DS_EEG_LEN - 1; i+=4) {
+		eegBuffer[i] = j;
+		j++;
 	}
 	ProjectZero_enqueueMsg(NOTIFY_EEG_EVT, eegBuffer); // EEG = 1, AXY = 2
 }
@@ -433,7 +435,7 @@ static void ProjectZero_init(void) {
 		}
 	}
 
-	Util_constructClock(&clkBTENotify, ProjectZero_notifyHandler, 1000, 100,
+	Util_constructClock(&clkBTENotify, ProjectZero_notifyHandler, 1000, 50,
 	false, 0x00);
 }
 

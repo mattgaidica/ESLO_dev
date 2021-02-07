@@ -77,7 +77,7 @@ extern "C"
 #define DS_STREAM_LEN_MIN            0
 
 // EEG Characteristic defines
-#define DS_EEG_LEN                248
+#define DS_EEG_LEN                201
 #define DS_EEG_LEN_MIN            0
 
 #define DS_EEG1_ID                 0
