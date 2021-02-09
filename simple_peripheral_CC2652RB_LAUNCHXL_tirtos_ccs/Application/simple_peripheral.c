@@ -83,6 +83,20 @@
 #include "simple_peripheral.h"
 #include "ti_ble_config.h"
 
+/***** ESLO *****/
+/* AXY */
+#include <lsm303agr_reg.h>
+#include <lsm303agr_CCXXXX.h>
+
+/* NAND */
+#include <SPI_NAND.h>
+#include <ESLO.h>
+#include <Serialize.h>
+
+/* ADS129X */
+#include <ADS129X.h>
+#include <Definitions.h>
+
 /*********************************************************************
  * MACROS
  */
@@ -91,7 +105,7 @@
  * CONSTANTS
  */
 // How often to perform periodic event (in ms)
-#define SP_PERIODIC_EVT_PERIOD               100
+#define SP_PERIODIC_EVT_PERIOD               1000
 
 // Task configuration
 #define SP_TASK_PRIORITY                     1
@@ -111,6 +125,7 @@
 #define SP_READ_RPA_EVT                      7
 #define SP_SEND_PARAM_UPDATE_EVT             8
 #define SP_CONN_EVT                          9
+#define ES_EEG_NOTIF						 10
 
 // Internal Events for RTOS application
 #define SP_ICALL_EVT                         ICALL_MSG_EVENT_ID // Event_Id_31
@@ -355,22 +370,199 @@ int_fast16_t adcRes;
 uint16_t adcValue0;
 uint32_t adcValue0MicroVolt;
 
-//void eegTaskFcn(UArg a0, UArg a1);
-//void xlTaskFcn(UArg a0, UArg a1);
-//void mgTaskFcn(UArg a0, UArg a1);
-//void adcTaskFcn(UArg a0, UArg a1);
+uint32_t secondCount = 0;
+uint32_t esloVersion = 0x00000000;
+uint32_t axyCount;
+uint32_t eegCount;
+uint32_t magCount;
+eslo_dt eslo = { .mode = Mode_Debug };
+ReturnType ret; // NAND
+
+/* Module Settings */
+ESLO_ModuleStatus USE_EEG = ESLO_MODULE_ON;
+ESLO_ModuleStatus USE_XL = ESLO_MODULE_OFF;
+ESLO_ModuleStatus USE_MG = ESLO_MODULE_OFF;
+
+#define PACKET_SZ_EEG 50
+int32_t eeg1Buffer[PACKET_SZ_EEG];
+uint8_t iEEG = 0;
+
+/* AXY Vars */
+stmdev_ctx_t dev_ctx_xl;
+stmdev_ctx_t dev_ctx_mg;
+static axis3bit16_t data_raw_acceleration;
+static axis3bit16_t data_raw_magnetic;
+static uint8_t whoamI, rst;
+uint32_t XL_TIMEOUT = 500000;
+
+/* NAND Vars */
+uint8_t ret;
+uint16_t devId;
+uint8_t esloBuffer[PAGE_DATA_SIZE];
+//uint8_t readBuf[PAGE_SIZE]; // 2176, always allocate full page size
+uint32_t esloPacket;
+uAddrType esloAddr;
+
+/* ADS129X Vars */
+int32_t status;
+int32_t ch1;
+int32_t ch2;
+int32_t ch3;
+int32_t ch4;
+
+//static void SimplePeripheral_keyChangeHandler(uint8_t keys)
+//{
+//  uint8_t *pValue = ICall_malloc(sizeof(uint8_t));
 //
-//void eegTaskFcn(UArg a0, UArg a1) {}
-//void xlTaskFcn(UArg a0, UArg a1) {}
-//void mgTaskFcn(UArg a0, UArg a1) {}
-//void adcTaskFcn(UArg a0, UArg a1) {}
+//  if (pValue)
+//  {
+//    *pValue = keys;
+//
+//    if(SimplePeripheral_enqueueMsg(SP_KEY_CHANGE_EVT, pValue) != SUCCESS)
+//    {
+//      ICall_free(pValue);
+//    }
+//  }
+//}
+
+void eegDataHandler(void) {
+	uint32_t packet;
+	ADS_updateData(&status, &ch1, &ch2, &ch3, &ch4);
+
+	eslo.type = Type_EEG1;
+	eslo.data = ch1;
+	ESLO_Packet(eslo, &packet);
+	eeg1Buffer[iEEG] = packet;
+	iEEG++;
+
+	if (iEEG == PACKET_SZ_EEG) {
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4, SIMPLEPROFILE_CHAR4_LEN,
+				eeg1Buffer);
+		iEEG = 0;
+	}
+	eegCount++;
+}
+
 void eegDataReady(uint_least8_t index) {
+	SimplePeripheral_enqueueMsg(ES_EEG_NOTIF, NULL);
 }
 
 void axyXlReady(uint_least8_t index) {
 }
 
 void axyMagReady(uint_least8_t index) {
+}
+
+void ESLO_startup(void) {
+	/* NAND */
+	NAND_Init(CONFIG_SPI, _NAND_CS);
+	ret = FlashReadDeviceIdentification(&devId);
+
+//	ESLO_SetVersion(&esloVersion, CONFIG_TRNG_0);
+//	eslo.type = Type_Version;
+//	eslo.version = esloVersion; // set version once
+//	eslo.data = esloVersion; // data is version in this case
+//	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+
+	/* ADS129X - Defaults in SysConfig */
+	if (USE_EEG == ESLO_MODULE_ON) {
+		GPIO_write(_SHDN, GPIO_CFG_OUT_HIGH);
+		GPIO_setConfig(_EEG_CS,
+		GPIO_CFG_OUT_STD | GPIO_CFG_OUT_STR_LOW | GPIO_CFG_OUT_LOW);
+		GPIO_setConfig(EEG_START,
+		GPIO_CFG_OUT_STD | GPIO_CFG_OUT_STR_LOW | GPIO_CFG_OUT_HIGH);
+		Task_sleep(150000 / Clock_tickPeriod);
+		// check for ADS ID
+		ADS_init(CONFIG_SPI_EEG, _EEG_CS);
+		uint8 adsId = ADS_getDeviceID(); // 0x90
+	} else {
+		GPIO_write(_SHDN, GPIO_CFG_OUT_LOW); // redundant to Sysconfig
+	}
+
+	/* AXY */
+	AXY_Init(CONFIG_I2C_AXY);
+	dev_ctx_xl.write_reg = platform_i2c_write;
+	dev_ctx_xl.read_reg = platform_i2c_read;
+	dev_ctx_xl.handle = (void*) LSM303AGR_I2C_ADD_XL;
+	dev_ctx_mg.write_reg = platform_i2c_write;
+	dev_ctx_mg.read_reg = platform_i2c_read;
+	dev_ctx_mg.handle = (void*) LSM303AGR_I2C_ADD_MG;
+
+	lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_DISABLE);
+
+	if (USE_XL == ESLO_MODULE_ON) {
+		whoamI = 0;
+		lsm303agr_xl_device_id_get(&dev_ctx_xl, &whoamI);
+		while (whoamI != LSM303AGR_ID_XL) {
+			while (1) {
+			}
+		}
+		lsm303agr_xl_block_data_update_set(&dev_ctx_xl, PROPERTY_ENABLE);
+		lsm303agr_xl_full_scale_set(&dev_ctx_xl, LSM303AGR_2g);
+		lsm303agr_xl_operating_mode_set(&dev_ctx_xl, LSM303AGR_HR_12bit);
+		lsm303agr_xl_fifo_set(&dev_ctx_xl, PROPERTY_ENABLE);
+		lsm303agr_ctrl_reg3_a_t int1Val;
+		int1Val.i1_overrun = 1;
+		int1Val.i1_wtm = 0;
+		int1Val.i1_drdy2 = 0;
+		int1Val.i1_drdy1 = 0;
+		int1Val.i1_aoi2 = 0;
+		int1Val.i1_aoi1 = 0;
+		int1Val.i1_click = 0;
+		lsm303agr_xl_pin_int1_config_set(&dev_ctx_xl, &int1Val);
+	}
+
+	if (USE_MG == ESLO_MODULE_ON) {
+		whoamI = 0;
+		lsm303agr_mag_device_id_get(&dev_ctx_mg, &whoamI);
+
+		if (whoamI != LSM303AGR_ID_MG) {
+			while (1) {
+			}
+		}
+
+		/* Restore default configuration for magnetometer */
+		lsm303agr_mag_reset_set(&dev_ctx_mg, PROPERTY_ENABLE);
+		do {
+			lsm303agr_mag_reset_get(&dev_ctx_mg, &rst);
+		} while (rst);
+
+		lsm303agr_mag_block_data_update_set(&dev_ctx_mg, PROPERTY_ENABLE);
+		lsm303agr_mag_data_rate_set(&dev_ctx_mg, LSM303AGR_MG_ODR_10Hz);
+		lsm303agr_mag_set_rst_mode_set(&dev_ctx_mg,
+				LSM303AGR_SENS_OFF_CANC_EVERY_ODR);
+		lsm303agr_mag_offset_temp_comp_set(&dev_ctx_mg, PROPERTY_ENABLE);
+		lsm303agr_mag_drdy_on_pin_set(&dev_ctx_mg, PROPERTY_ENABLE);
+	}
+
+	ADC_Params_init(&adcParams);
+	adc = ADC_open(R_VBATT, &adcParams);
+	if (adc == NULL) {
+		while (1) {
+		}
+	}
+
+	// ENABLE INTERRUPTS
+	if (USE_EEG == ESLO_MODULE_ON) {
+		GPIO_enableInt(_EEG_DRDY);
+	}
+
+	if (USE_XL == ESLO_MODULE_ON) {
+		lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_1Hz);
+		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE); // clear int
+		GPIO_enableInt(AXY_INT1);
+		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE); // enable
+	} else {
+		lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_POWER_DOWN);
+	}
+
+	if (USE_MG == ESLO_MODULE_ON) {
+		GPIO_enableInt(AXY_MAG);
+		lsm303agr_mag_operating_mode_set(&dev_ctx_mg,
+				LSM303AGR_CONTINUOUS_MODE);
+	} else {
+		lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_POWER_DOWN);
+	}
 }
 
 /*********************************************************************
@@ -464,20 +656,20 @@ static void SimplePeripheral_init(void) {
 	// For more information, see the GATT and GATTServApp sections in the User's Guide:
 	// http://software-dl.ti.com/lprf/ble5stack-latest/
 	{
-		uint8_t charValue1 = 1;
-		uint8_t charValue2 = 2;
-		uint8_t charValue3 = 3;
-		uint8_t charValue4 = 4;
+		uint8_t charValue1[SIMPLEPROFILE_CHAR1_LEN] = { 0 };
+		uint8_t charValue2[SIMPLEPROFILE_CHAR2_LEN] = { 0 };
+		uint8_t charValue3[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
+		uint8_t charValue4[SIMPLEPROFILE_CHAR4_LEN] = { 0 };
 		uint8_t charValue5[SIMPLEPROFILE_CHAR5_LEN] = { 0 };
 
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR1, sizeof(uint8_t),
-				&charValue1);
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR2, sizeof(uint8_t),
-				&charValue2);
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, sizeof(uint8_t),
-				&charValue3);
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4, sizeof(uint8_t),
-				&charValue4);
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR1, SIMPLEPROFILE_CHAR1_LEN,
+				charValue1);
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR2, SIMPLEPROFILE_CHAR2_LEN,
+				charValue2);
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
+				charValue3);
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4, SIMPLEPROFILE_CHAR4_LEN,
+				charValue4);
 		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5, SIMPLEPROFILE_CHAR5_LEN,
 				charValue5);
 	}
@@ -529,14 +721,7 @@ static void SimplePeripheral_init(void) {
 	SPI_init();
 	I2C_init();
 	ADC_init();
-	ADC_Params_init(&adcParams);
-	adc = ADC_open(R_VBATT, &adcParams);
-	if (adc == NULL) {
-		while (1) {
-		}
-	}
-
-	GPIO_write(LED_0, GPIO_CFG_OUT_LOW);
+	ESLO_startup();
 
 }
 
@@ -683,11 +868,6 @@ static uint8_t SimplePeripheral_processStackMsg(ICall_Hdr *pMsg) {
 				} else {
 					// Only symmetrical PHY is supported.
 					// rxPhy should be equal to txPhy.
-//              Display_printf(dispHandle, SP_ROW_STATUS_2, 0,
-//                             "PHY Updated to %s",
-//                             (pPUC->rxPhy == PHY_UPDATE_COMPLETE_EVENT_1M) ? "1M" :
-//                             (pPUC->rxPhy == PHY_UPDATE_COMPLETE_EVENT_2M) ? "2M" :
-//                             (pPUC->rxPhy == PHY_UPDATE_COMPLETE_EVENT_CODED) ? "CODED" : "Unexpected PHY Value");
 				}
 
 				SimplePeripheral_updatePHYStat(
@@ -761,10 +941,6 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 		SimplePeripheral_processCharValueChangeEvt(*(uint8_t*) (pMsg->pData));
 		break;
 
-	case SP_KEY_CHANGE_EVT:
-//      SimplePeripheral_handleKeys(*(uint8_t*)(pMsg->pData));
-		break;
-
 	case SP_ADV_EVT:
 		SimplePeripheral_processAdvEvent((spGapAdvEventData_t*) (pMsg->pData));
 		break;
@@ -799,6 +975,10 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 
 	case SP_CONN_EVT:
 		SimplePeripheral_processConnEvt((Gap_ConnEventRpt_t*) (pMsg->pData));
+		break;
+
+	case ES_EEG_NOTIF:
+		eegDataHandler();
 		break;
 
 	default:
@@ -1095,19 +1275,18 @@ static void SimplePeripheral_charValueChangeCB(uint8_t paramId) {
  * @param   paramID - parameter ID of the value that was changed.
  */
 static void SimplePeripheral_processCharValueChangeEvt(uint8_t paramId) {
-	uint8_t newValue;
+	uint8_t newValueChar1[SIMPLEPROFILE_CHAR1_LEN];
+	uint8_t newValueChar3[SIMPLEPROFILE_CHAR3_LEN];
 
 	switch (paramId) {
+	// only characteristics with GATT_PROP_WRITE, all others are written elsewhere
 	case SIMPLEPROFILE_CHAR1:
-		SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR1, &newValue);
-
-//      Display_printf(dispHandle, SP_ROW_STATUS_1, 0, "Char 1: %d", (uint16_t)newValue);
+		SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR1, newValueChar1);
+		GPIO_write(LED_0, newValueChar1[0]);
 		break;
 
 	case SIMPLEPROFILE_CHAR3:
-		SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR3, &newValue);
-
-//      Display_printf(dispHandle, SP_ROW_STATUS_1, 0, "Char 3: %d", (uint16_t)newValue);
+		SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR3, newValueChar3);
 		break;
 
 	default:
@@ -1135,31 +1314,8 @@ static void SimplePeripheral_performPeriodicTask(void) {
 		// read, multiply by 2 for voltage divider
 		adcValue0MicroVolt = ADC_convertRawToMicroVolts(adc, adcValue0) * 2;
 	}
-	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5, SIMPLEPROFILE_CHAR5_LEN,
+	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR2, SIMPLEPROFILE_CHAR2_LEN,
 			&adcValue0MicroVolt);
-
-	uint8_t eegBuffer[SIMPLEPROFILE_CHAR4_LEN] = { 0 };
-	int i;
-	int j = 0;
-	for (i = 0; i < SIMPLEPROFILE_CHAR4_LEN; i += 4) {
-		eegBuffer[i] = j;
-		j++;
-	}
-
-	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4, SIMPLEPROFILE_CHAR4_LEN,
-			eegBuffer);
-
-	//	uint8_t valueToCopy;
-
-	// Call to retrieve the value of the third characteristic in the profile
-//	if (SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR3, &valueToCopy) == SUCCESS) {
-//		// Call to set that value of the fourth characteristic in the profile.
-//		// Note that if notifications of the fourth characteristic have been
-//		// enabled by a GATT client device, then a notification will be sent
-//		// every time this function is called.
-//		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4, sizeof(uint8_t),
-//				&valueToCopy);
-//	}
 }
 
 /*********************************************************************

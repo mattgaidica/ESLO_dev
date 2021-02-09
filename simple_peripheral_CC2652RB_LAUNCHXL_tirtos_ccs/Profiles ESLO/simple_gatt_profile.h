@@ -62,28 +62,30 @@ extern "C"
  */
 #ifndef USE_GATT_BUILDER
 // Profile Parameters
-#define SIMPLEPROFILE_CHAR1                   0  // RW uint8 - Profile Characteristic 1 value
-#define SIMPLEPROFILE_CHAR2                   1  // RW uint8 - Profile Characteristic 2 value
-#define SIMPLEPROFILE_CHAR3                   2  // RW uint8 - Profile Characteristic 3 value
-#define SIMPLEPROFILE_CHAR4                   3  // RW uint8 - Profile Characteristic 4 value
-#define SIMPLEPROFILE_CHAR5                   4  // RW uint8 - Profile Characteristic 4 value
+#define SIMPLEPROFILE_CHAR1                   0  // LED_0
+#define SIMPLEPROFILE_CHAR2                   1  // vBatt/vitals
+#define SIMPLEPROFILE_CHAR3                   2  // Settings
+#define SIMPLEPROFILE_CHAR4                   3  // EEG
+#define SIMPLEPROFILE_CHAR5                   4  // AXY
 
 // Simple Profile Service UUID
-#define SIMPLEPROFILE_SERV_UUID               0xFFF0
+#define SIMPLEPROFILE_SERV_UUID               0xE000
 
-// Key Pressed UUID
-#define SIMPLEPROFILE_CHAR1_UUID            0xFFF1
-#define SIMPLEPROFILE_CHAR2_UUID            0xFFF2
-#define SIMPLEPROFILE_CHAR3_UUID            0xFFF3
-#define SIMPLEPROFILE_CHAR4_UUID            0xFFF4
-#define SIMPLEPROFILE_CHAR5_UUID            0xFFF5
+#define SIMPLEPROFILE_CHAR1_UUID            0xE001
+#define SIMPLEPROFILE_CHAR2_UUID            0xE002
+#define SIMPLEPROFILE_CHAR3_UUID            0xE003
+#define SIMPLEPROFILE_CHAR4_UUID            0xE004
+#define SIMPLEPROFILE_CHAR5_UUID            0xE005
 
 // Simple Keys Profile Services bit fields
 #define SIMPLEPROFILE_SERVICE               0x00000001
 
 // Length of Characteristic 5 in bytes
-#define SIMPLEPROFILE_CHAR4_LEN			  200
-#define SIMPLEPROFILE_CHAR5_LEN           4
+#define SIMPLEPROFILE_CHAR1_LEN			  1		// LED_0
+#define SIMPLEPROFILE_CHAR2_LEN			  4		// vBatt
+#define SIMPLEPROFILE_CHAR3_LEN			  16	// settings
+#define SIMPLEPROFILE_CHAR4_LEN			  200 	// header + EEG
+#define SIMPLEPROFILE_CHAR5_LEN           200	// header + AXY
 
 /*********************************************************************
  * TYPEDEFS

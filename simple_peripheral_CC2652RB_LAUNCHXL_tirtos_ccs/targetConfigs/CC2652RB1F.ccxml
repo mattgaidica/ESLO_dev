@@ -17,6 +17,11 @@
                     <property Type="choicelist" Value="1" id="XDS110 Aux Port"/>
                 </choice>
             </property>
+            <property Type="choicelist" Value="1" id="The JTAG TCLK Frequency (MHz)">
+                <choice Name="Fixed with user specified value" value="SPECIFIC">
+                    <property Type="stringfield" Value="1MHz" id="-- Enter a value from 100.0kHz to 2.5MHz"/>
+                </choice>
+            </property>
             <platform XML_version="1.2" id="platform_0">
                 <instance XML_version="1.2" desc="CC2652RB1F" href="devices/cc2652rb1f.xml" id="CC2652RB1F" xml="cc2652rb1f.xml" xmlpath="devices"/>
             </platform>

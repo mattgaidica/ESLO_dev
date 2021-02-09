@@ -1,8 +1,16 @@
 eclipse.preferences.version=1
+encoding//Release/ADS129X/subdir_rules.mk=UTF-8
+encoding//Release/ADS129X/subdir_vars.mk=UTF-8
 encoding//Release/Application/subdir_rules.mk=UTF-8
 encoding//Release/Application/subdir_vars.mk=UTF-8
 encoding//Release/Drivers/NV/subdir_rules.mk=UTF-8
 encoding//Release/Drivers/NV/subdir_vars.mk=UTF-8
+encoding//Release/ESLO/subdir_rules.mk=UTF-8
+encoding//Release/ESLO/subdir_vars.mk=UTF-8
+encoding//Release/LSM303AGR/subdir_rules.mk=UTF-8
+encoding//Release/LSM303AGR/subdir_vars.mk=UTF-8
+encoding//Release/NAND/subdir_rules.mk=UTF-8
+encoding//Release/NAND/subdir_vars.mk=UTF-8
 encoding//Release/NPI/subdir_rules.mk=UTF-8
 encoding//Release/NPI/subdir_vars.mk=UTF-8
 encoding//Release/Profiles\ ESLO/subdir_rules.mk=UTF-8
