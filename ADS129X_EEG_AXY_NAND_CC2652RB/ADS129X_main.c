@@ -284,7 +284,7 @@ void ESLO_startup(void) {
 		Task_sleep(150000 / Clock_tickPeriod);
 		// check for ADS ID
 		ADS_init(CONFIG_SPI_EEG, _EEG_CS);
-		uint8 adsId = ADS_getDeviceID(); // 0x90
+		uint8_t adsId = ADS_getDeviceID(); // 0x90
 	} else {
 		GPIO_write(_SHDN, GPIO_CFG_OUT_LOW); // redundant to Sysconfig
 	}

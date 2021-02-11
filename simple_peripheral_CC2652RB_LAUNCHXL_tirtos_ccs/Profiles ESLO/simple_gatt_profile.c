@@ -155,7 +155,6 @@ static uint8 simpleProfileChar5Props = GATT_PROP_READ | GATT_PROP_NOTIFY;
 static uint8 simpleProfileChar5[SIMPLEPROFILE_CHAR5_LEN] = { 0 };
 static gattCharCfg_t *simpleProfileChar5Config; // notify only
 
-
 static uint8 simpleProfileChar1UserDesp[17] = "ESLO LED_0      ";
 static uint8 simpleProfileChar2UserDesp[17] = "ESLO Vitals     ";
 static uint8 simpleProfileChar3UserDesp[17] = "ESLO Settings   ";
@@ -166,86 +165,85 @@ static uint8 simpleProfileChar5UserDesp[17] = "ESLO AXY        ";
  * Profile Attributes - Table
  */
 
-static gattAttribute_t simpleProfileAttrTbl[SERVAPP_NUM_ATTR_SUPPORTED] =
-		{
+static gattAttribute_t simpleProfileAttrTbl[SERVAPP_NUM_ATTR_SUPPORTED] = {
 // Simple Profile Service
-				{ { ATT_BT_UUID_SIZE, primaryServiceUUID }, /* type */
-				GATT_PERMIT_READ, /* permissions */
-				0, /* handle */
-				(uint8*) &simpleProfileService /* pValue */
-				},
+		{ { ATT_BT_UUID_SIZE, primaryServiceUUID }, /* type */
+		GATT_PERMIT_READ, /* permissions */
+		0, /* handle */
+		(uint8*) &simpleProfileService /* pValue */
+		},
 
-				// Characteristic 1 Declaration
-				{ { ATT_BT_UUID_SIZE, characterUUID },
-				GATT_PERMIT_READ, 0, &simpleProfileChar1Props },
-				// Characteristic Value 1
-				{ { ATT_BT_UUID_SIZE, simpleProfilechar1UUID }, GATT_PERMIT_READ | GATT_PERMIT_WRITE, 0,
-						simpleProfileChar1 },
-				// Characteristic 1 configuration
+		// Characteristic 1 Declaration
+		{ { ATT_BT_UUID_SIZE, characterUUID },
+		GATT_PERMIT_READ, 0, &simpleProfileChar1Props },
+		// Characteristic Value 1
+		{ { ATT_BT_UUID_SIZE, simpleProfilechar1UUID }, GATT_PERMIT_READ
+				| GATT_PERMIT_WRITE, 0, simpleProfileChar1 },
+		// Characteristic 1 configuration
 //				{ { ATT_BT_UUID_SIZE, clientCharCfgUUID },
 //				GATT_PERMIT_READ | GATT_PERMIT_WRITE, 0,
 //						(uint8*) &simpleProfileChar1Config },
-				// Characteristic 1 User Description
-				{ { ATT_BT_UUID_SIZE, charUserDescUUID },
-				GATT_PERMIT_READ, 0, simpleProfileChar1UserDesp },
+		// Characteristic 1 User Description
+		{ { ATT_BT_UUID_SIZE, charUserDescUUID },
+		GATT_PERMIT_READ, 0, simpleProfileChar1UserDesp },
 
-				// Characteristic 2 Declaration
-				{ { ATT_BT_UUID_SIZE, characterUUID },
-				GATT_PERMIT_READ, 0, &simpleProfileChar2Props },
-				// Characteristic Value 2
-				{ { ATT_BT_UUID_SIZE, simpleProfilechar2UUID }, GATT_PERMIT_READ, 0,
-						simpleProfileChar2 },
-				// Characteristic 2 configuration
-				{ { ATT_BT_UUID_SIZE, clientCharCfgUUID },
-				GATT_PERMIT_READ | GATT_PERMIT_WRITE, 0,
-						(uint8*) &simpleProfileChar2Config },
-				// Characteristic 2 User Description
-				{ { ATT_BT_UUID_SIZE, charUserDescUUID },
-				GATT_PERMIT_READ, 0, simpleProfileChar2UserDesp },
+		// Characteristic 2 Declaration
+		{ { ATT_BT_UUID_SIZE, characterUUID },
+		GATT_PERMIT_READ, 0, &simpleProfileChar2Props },
+		// Characteristic Value 2
+		{ { ATT_BT_UUID_SIZE, simpleProfilechar2UUID }, GATT_PERMIT_READ, 0,
+				simpleProfileChar2 },
+		// Characteristic 2 configuration
+		{ { ATT_BT_UUID_SIZE, clientCharCfgUUID },
+		GATT_PERMIT_READ | GATT_PERMIT_WRITE, 0,
+				(uint8*) &simpleProfileChar2Config },
+		// Characteristic 2 User Description
+		{ { ATT_BT_UUID_SIZE, charUserDescUUID },
+		GATT_PERMIT_READ, 0, simpleProfileChar2UserDesp },
 
-				// Characteristic 3 Declaration
-				{ { ATT_BT_UUID_SIZE, characterUUID },
-				GATT_PERMIT_READ, 0, &simpleProfileChar3Props },
-				// Characteristic Value 3
-				{ { ATT_BT_UUID_SIZE, simpleProfilechar3UUID }, GATT_PERMIT_READ | GATT_PERMIT_WRITE, 0,
-						simpleProfileChar3 },
-				// Characteristic 3 configuration
-				{ { ATT_BT_UUID_SIZE, clientCharCfgUUID },
-				GATT_PERMIT_READ | GATT_PERMIT_WRITE, 0,
-						(uint8*) &simpleProfileChar3Config },
-				// Characteristic 3 User Description
-				{ { ATT_BT_UUID_SIZE, charUserDescUUID },
-				GATT_PERMIT_READ, 0, simpleProfileChar3UserDesp },
+		// Characteristic 3 Declaration
+		{ { ATT_BT_UUID_SIZE, characterUUID },
+		GATT_PERMIT_READ, 0, &simpleProfileChar3Props },
+		// Characteristic Value 3
+		{ { ATT_BT_UUID_SIZE, simpleProfilechar3UUID }, GATT_PERMIT_READ
+				| GATT_PERMIT_WRITE, 0, simpleProfileChar3 },
+		// Characteristic 3 configuration
+		{ { ATT_BT_UUID_SIZE, clientCharCfgUUID },
+		GATT_PERMIT_READ | GATT_PERMIT_WRITE, 0,
+				(uint8*) &simpleProfileChar3Config },
+		// Characteristic 3 User Description
+		{ { ATT_BT_UUID_SIZE, charUserDescUUID },
+		GATT_PERMIT_READ, 0, simpleProfileChar3UserDesp },
 
-				// Characteristic 4 Declaration
-				{ { ATT_BT_UUID_SIZE, characterUUID },
-				GATT_PERMIT_READ, 0, &simpleProfileChar4Props },
-				// Characteristic Value 4
-				{ { ATT_BT_UUID_SIZE, simpleProfilechar4UUID }, GATT_PERMIT_READ, 0,
-						simpleProfileChar4 },
-				// Characteristic 4 configuration
-				{ { ATT_BT_UUID_SIZE, clientCharCfgUUID },
-				GATT_PERMIT_READ | GATT_PERMIT_WRITE, 0,
-						(uint8*) &simpleProfileChar4Config },
-				// Characteristic 4 User Description
-				{ { ATT_BT_UUID_SIZE, charUserDescUUID },
-				GATT_PERMIT_READ, 0, simpleProfileChar4UserDesp },
+		// Characteristic 4 Declaration
+		{ { ATT_BT_UUID_SIZE, characterUUID },
+		GATT_PERMIT_READ, 0, &simpleProfileChar4Props },
+		// Characteristic Value 4
+		{ { ATT_BT_UUID_SIZE, simpleProfilechar4UUID }, GATT_PERMIT_READ, 0,
+				simpleProfileChar4 },
+		// Characteristic 4 configuration
+		{ { ATT_BT_UUID_SIZE, clientCharCfgUUID },
+		GATT_PERMIT_READ | GATT_PERMIT_WRITE, 0,
+				(uint8*) &simpleProfileChar4Config },
+		// Characteristic 4 User Description
+		{ { ATT_BT_UUID_SIZE, charUserDescUUID },
+		GATT_PERMIT_READ, 0, simpleProfileChar4UserDesp },
 
-				// Characteristic 5 Declaration
-				{ { ATT_BT_UUID_SIZE, characterUUID },
-				GATT_PERMIT_READ, 0, &simpleProfileChar5Props },
-				// Characteristic Value 5
-				{ { ATT_BT_UUID_SIZE, simpleProfilechar5UUID }, GATT_PERMIT_READ, 0,
-						simpleProfileChar5 },
-				// Characteristic 5 configuration
-				{ { ATT_BT_UUID_SIZE, clientCharCfgUUID },
-				GATT_PERMIT_READ | GATT_PERMIT_WRITE, 0,
-						(uint8*) &simpleProfileChar5Config },
-				// Characteristic 5 User Description
-				{ { ATT_BT_UUID_SIZE, charUserDescUUID },
-				GATT_PERMIT_READ, 0, simpleProfileChar5UserDesp },
+		// Characteristic 5 Declaration
+		{ { ATT_BT_UUID_SIZE, characterUUID },
+		GATT_PERMIT_READ, 0, &simpleProfileChar5Props },
+		// Characteristic Value 5
+		{ { ATT_BT_UUID_SIZE, simpleProfilechar5UUID }, GATT_PERMIT_READ, 0,
+				simpleProfileChar5 },
+		// Characteristic 5 configuration
+		{ { ATT_BT_UUID_SIZE, clientCharCfgUUID },
+		GATT_PERMIT_READ | GATT_PERMIT_WRITE, 0,
+				(uint8*) &simpleProfileChar5Config },
+		// Characteristic 5 User Description
+		{ { ATT_BT_UUID_SIZE, charUserDescUUID },
+		GATT_PERMIT_READ, 0, simpleProfileChar5UserDesp },
 
-		};
+};
 #endif // USE_GATT_BUILDER
 /*********************************************************************
  * LOCAL FUNCTIONS
@@ -414,6 +412,11 @@ bStatus_t SimpleProfile_SetParameter(uint8 param, uint8 len, void *value) {
 	case SIMPLEPROFILE_CHAR3:
 		if (len == SIMPLEPROFILE_CHAR3_LEN) {
 			VOID memcpy(simpleProfileChar3, value, SIMPLEPROFILE_CHAR3_LEN);
+			// See if Notification has been enabled
+			GATTServApp_ProcessCharCfg(simpleProfileChar3Config,
+					simpleProfileChar3, FALSE, simpleProfileAttrTbl,
+					GATT_NUM_ATTRS(simpleProfileAttrTbl),
+					INVALID_TASK_ID, simpleProfile_ReadAttrCB);
 		} else {
 			ret = bleInvalidRange;
 		}
@@ -529,11 +532,7 @@ bStatus_t simpleProfile_ReadAttrCB(uint16_t connHandle, gattAttribute_t *pAttr,
 		// No need for "GATT_SERVICE_UUID" or "GATT_CLIENT_CHAR_CFG_UUID" cases;
 		// gattserverapp handles those reads
 
-		// characteristics 1 and 2 have read permissions
-		// characteritisc 3 does not have read permissions; therefore it is not
-		//   included here
-		// characteristic 4 does not have read permissions, but because it
-		//   can be sent as a notification, it is included here
+		// include all read or notofication chars
 		case SIMPLEPROFILE_CHAR1_UUID:
 			*pLen = SIMPLEPROFILE_CHAR1_LEN;
 			VOID memcpy(pValue, pAttr->pValue, SIMPLEPROFILE_CHAR1_LEN);
@@ -597,8 +596,10 @@ bStatus_t simpleProfile_WriteAttrCB(uint16_t connHandle, gattAttribute_t *pAttr,
 		case SIMPLEPROFILE_CHAR3_UUID:
 
 			// Validate the value
+			// kind of sloppy, should validate length for each, but requires refactoring
 			if (offset == 0) {
-				if (len > SIMPLEPROFILE_CHAR1_LEN && len > SIMPLEPROFILE_CHAR3_LEN) {
+				if (len > SIMPLEPROFILE_CHAR1_LEN
+						&& len > SIMPLEPROFILE_CHAR3_LEN) {
 					status = ATT_ERR_INVALID_VALUE_SIZE;
 				}
 			} else {

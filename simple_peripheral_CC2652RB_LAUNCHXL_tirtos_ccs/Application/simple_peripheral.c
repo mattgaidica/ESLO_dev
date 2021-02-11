@@ -364,6 +364,19 @@ static simpleProfileCBs_t SimplePeripheral_simpleProfileCBs = {
  * PUBLIC FUNCTIONS
  */
 
+static uint8_t updateEEGFromSettings(bool actOnInterrupt);
+static void eegInterrupt(bool enableInterrupt);
+
+static uint8_t updateXlFromSettings(bool actOnInterrupt);
+static void xlInterrupt(bool enableInterrupt);
+
+static uint8_t USE_EEG(uint8_t *esloSettings);
+static uint8_t USE_AXY(uint8_t *esloSettings);
+
+static void mapEsloSettings(uint8_t *pValue);
+
+uint8_t esloSettings[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
+
 ADC_Handle adc;
 ADC_Params adcParams;
 int_fast16_t adcRes;
@@ -378,13 +391,11 @@ uint32_t magCount;
 eslo_dt eslo = { .mode = Mode_Debug };
 ReturnType ret; // NAND
 
-/* Module Settings */
-ESLO_ModuleStatus USE_EEG = ESLO_MODULE_ON;
-ESLO_ModuleStatus USE_XL = ESLO_MODULE_OFF;
-ESLO_ModuleStatus USE_MG = ESLO_MODULE_OFF;
-
 #define PACKET_SZ_EEG 50
 int32_t eeg1Buffer[PACKET_SZ_EEG];
+int32_t eeg2Buffer[PACKET_SZ_EEG];
+int32_t eeg3Buffer[PACKET_SZ_EEG];
+int32_t eeg4Buffer[PACKET_SZ_EEG];
 uint8_t iEEG = 0;
 
 /* AXY Vars */
@@ -410,37 +421,107 @@ int32_t ch2;
 int32_t ch3;
 int32_t ch4;
 
-//static void SimplePeripheral_keyChangeHandler(uint8_t keys)
-//{
-//  uint8_t *pValue = ICall_malloc(sizeof(uint8_t));
-//
-//  if (pValue)
-//  {
-//    *pValue = keys;
-//
-//    if(SimplePeripheral_enqueueMsg(SP_KEY_CHANGE_EVT, pValue) != SUCCESS)
-//    {
-//      ICall_free(pValue);
-//    }
-//  }
-//}
+static void mapEsloSettings(uint8_t *pValue) {
+	if (esloSettings[Set_SleepWake] != *(pValue + Set_SleepWake)) {
 
-void eegDataHandler(void) {
-	uint32_t packet;
-	ADS_updateData(&status, &ch1, &ch2, &ch3, &ch4);
-
-	eslo.type = Type_EEG1;
-	eslo.data = ch1;
-	ESLO_Packet(eslo, &packet);
-	eeg1Buffer[iEEG] = packet;
-	iEEG++;
-
-	if (iEEG == PACKET_SZ_EEG) {
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4, SIMPLEPROFILE_CHAR4_LEN,
-				eeg1Buffer);
-		iEEG = 0;
 	}
-	eegCount++;
+	if (esloSettings[Set_EEG1] != *(pValue + Set_EEG1)
+			| esloSettings[Set_EEG2] != *(pValue + Set_EEG2)
+			| esloSettings[Set_EEG3] != *(pValue + Set_EEG3)
+			| esloSettings[Set_EEG4] != *(pValue + Set_EEG4)) {
+		// set them first, EEG function uses them
+		esloSettings[Set_EEG1] = *(pValue + Set_EEG1);
+		esloSettings[Set_EEG2] = *(pValue + Set_EEG2);
+		esloSettings[Set_EEG3] = *(pValue + Set_EEG3);
+		esloSettings[Set_EEG4] = *(pValue + Set_EEG4);
+		updateEEGFromSettings(true);
+	}
+	if (esloSettings[Set_AxyMode] != *(pValue + Set_AxyMode)) {
+		// set it first, Xl function uses them
+		esloSettings[Set_AxyMode] = *(pValue + Set_AxyMode);
+		updateXlFromSettings(true);
+	}
+	if (esloSettings[Set_TxPower] != *(pValue + Set_TxPower)) {
+		switch (*(pValue + Set_TxPower)) {
+		case 0:
+			HCI_EXT_SetTxPowerCmd(HCI_EXT_TX_POWER_MINUS_20_DBM);
+			break;
+		case 1:
+			HCI_EXT_SetTxPowerCmd(HCI_EXT_TX_POWER_MINUS_10_DBM);
+			break;
+		case 2:
+			HCI_EXT_SetTxPowerCmd(HCI_EXT_TX_POWER_0_DBM);
+			break;
+		case 3:
+			HCI_EXT_SetTxPowerCmd(HCI_EXT_TX_POWER_5_DBM);
+			break;
+		default:
+			break;
+		}
+		esloSettings[Set_TxPower] = *(pValue + Set_TxPower);
+	}
+	// write time?
+	uint32_t newTime = { 0 }; // 2021 time
+	memcpy(&newTime, pValue + Set_Time1, 4); // prep for eslo packet
+}
+
+static uint8_t USE_EEG(uint8_t *esloSettings) {
+	return (esloSettings[Set_EEG1] | esloSettings[Set_EEG2]
+			| esloSettings[Set_EEG3] | esloSettings[Set_EEG4]) & 0x01;
+}
+
+static uint8_t USE_AXY(uint8_t *esloSettings) {
+	return esloSettings[Set_AxyMode] & 0x01;
+}
+
+static void eegDataHandler(void) {
+	uint32_t packet;
+
+	if (USE_EEG(esloSettings) == ESLO_MODULE_ON) { // double check
+		ADS_updateData(&status, &ch1, &ch2, &ch3, &ch4);
+
+		eslo.type = Type_EEG1;
+		eslo.data = ch1;
+		ESLO_Packet(eslo, &packet);
+		eeg1Buffer[iEEG] = packet;
+
+		eslo.type = Type_EEG2;
+		eslo.data = ch2;
+		ESLO_Packet(eslo, &packet);
+		eeg2Buffer[iEEG] = packet;
+
+		eslo.type = Type_EEG3;
+		eslo.data = ch1;
+		ESLO_Packet(eslo, &packet);
+		eeg3Buffer[iEEG] = packet;
+
+		eslo.type = Type_EEG4;
+		eslo.data = ch1;
+		ESLO_Packet(eslo, &packet);
+		eeg4Buffer[iEEG] = packet;
+		iEEG++;
+
+		if (iEEG == PACKET_SZ_EEG) {
+			if (esloSettings[Set_EEG1]) {
+				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
+				SIMPLEPROFILE_CHAR4_LEN, eeg1Buffer);
+			}
+			if (esloSettings[Set_EEG2]) {
+				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
+				SIMPLEPROFILE_CHAR4_LEN, eeg2Buffer);
+			}
+			if (esloSettings[Set_EEG3]) {
+				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
+				SIMPLEPROFILE_CHAR4_LEN, eeg3Buffer);
+			}
+			if (esloSettings[Set_EEG4]) {
+				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
+				SIMPLEPROFILE_CHAR4_LEN, eeg4Buffer);
+			}
+			iEEG = 0;
+		}
+		eegCount++;
+	}
 }
 
 void eegDataReady(uint_least8_t index) {
@@ -453,7 +534,13 @@ void axyXlReady(uint_least8_t index) {
 void axyMagReady(uint_least8_t index) {
 }
 
-void ESLO_startup(void) {
+static void ESLO_startup(void) {
+	// init Settings
+	esloSettings[Set_EEG1] = 1; // only one channel at init
+	esloSettings[Set_TxPower] = 1; // 1 = Tx0, assumes default in SysConfig
+	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
+			esloSettings);
+
 	/* NAND */
 	NAND_Init(CONFIG_SPI, _NAND_CS);
 	ret = FlashReadDeviceIdentification(&devId);
@@ -465,21 +552,9 @@ void ESLO_startup(void) {
 //	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 
 	/* ADS129X - Defaults in SysConfig */
-	if (USE_EEG == ESLO_MODULE_ON) {
-		GPIO_write(_SHDN, GPIO_CFG_OUT_HIGH);
-		GPIO_setConfig(_EEG_CS,
-		GPIO_CFG_OUT_STD | GPIO_CFG_OUT_STR_LOW | GPIO_CFG_OUT_LOW);
-		GPIO_setConfig(EEG_START,
-		GPIO_CFG_OUT_STD | GPIO_CFG_OUT_STR_LOW | GPIO_CFG_OUT_HIGH);
-		Task_sleep(150000 / Clock_tickPeriod);
-		// check for ADS ID
-		ADS_init(CONFIG_SPI_EEG, _EEG_CS);
-		uint8 adsId = ADS_getDeviceID(); // 0x90
-	} else {
-		GPIO_write(_SHDN, GPIO_CFG_OUT_LOW); // redundant to Sysconfig
-	}
+	bool enableEEGInterrupt = updateEEGFromSettings(false); // do not turn on yet
 
-	/* AXY */
+	/* AXY - init no matter what */
 	AXY_Init(CONFIG_I2C_AXY);
 	dev_ctx_xl.write_reg = platform_i2c_write;
 	dev_ctx_xl.read_reg = platform_i2c_read;
@@ -489,8 +564,9 @@ void ESLO_startup(void) {
 	dev_ctx_mg.handle = (void*) LSM303AGR_I2C_ADD_MG;
 
 	lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_DISABLE);
+	lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_POWER_DOWN);
 
-	if (USE_XL == ESLO_MODULE_ON) {
+	if (USE_AXY(esloSettings) == ESLO_MODULE_ON) {
 		whoamI = 0;
 		lsm303agr_xl_device_id_get(&dev_ctx_xl, &whoamI);
 		while (whoamI != LSM303AGR_ID_XL) {
@@ -512,29 +588,6 @@ void ESLO_startup(void) {
 		lsm303agr_xl_pin_int1_config_set(&dev_ctx_xl, &int1Val);
 	}
 
-	if (USE_MG == ESLO_MODULE_ON) {
-		whoamI = 0;
-		lsm303agr_mag_device_id_get(&dev_ctx_mg, &whoamI);
-
-		if (whoamI != LSM303AGR_ID_MG) {
-			while (1) {
-			}
-		}
-
-		/* Restore default configuration for magnetometer */
-		lsm303agr_mag_reset_set(&dev_ctx_mg, PROPERTY_ENABLE);
-		do {
-			lsm303agr_mag_reset_get(&dev_ctx_mg, &rst);
-		} while (rst);
-
-		lsm303agr_mag_block_data_update_set(&dev_ctx_mg, PROPERTY_ENABLE);
-		lsm303agr_mag_data_rate_set(&dev_ctx_mg, LSM303AGR_MG_ODR_10Hz);
-		lsm303agr_mag_set_rst_mode_set(&dev_ctx_mg,
-				LSM303AGR_SENS_OFF_CANC_EVERY_ODR);
-		lsm303agr_mag_offset_temp_comp_set(&dev_ctx_mg, PROPERTY_ENABLE);
-		lsm303agr_mag_drdy_on_pin_set(&dev_ctx_mg, PROPERTY_ENABLE);
-	}
-
 	ADC_Params_init(&adcParams);
 	adc = ADC_open(R_VBATT, &adcParams);
 	if (adc == NULL) {
@@ -542,27 +595,84 @@ void ESLO_startup(void) {
 		}
 	}
 
-	// ENABLE INTERRUPTS
-	if (USE_EEG == ESLO_MODULE_ON) {
+	bool enableXlInterrupt = updateXlFromSettings(true); // turn on interrupt here
+
+	eegInterrupt(enableEEGInterrupt); // turn on now
+}
+
+static void eegInterrupt(bool enableInterrupt) {
+	if (enableInterrupt) {
 		GPIO_enableInt(_EEG_DRDY);
+	} else {
+		GPIO_disableInt(_EEG_DRDY);
 	}
+}
 
-	if (USE_XL == ESLO_MODULE_ON) {
-		lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_1Hz);
-		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE); // clear int
+static uint8_t updateEEGFromSettings(bool actOnInterrupt) {
+	bool enableInterrupt;
+	uint8_t shdnState = GPIO_read(_SHDN);
+
+	if (USE_EEG(esloSettings) == ESLO_MODULE_ON) {
+		if (shdnState == GPIO_CFG_OUT_LOW) {
+			GPIO_write(_SHDN, GPIO_CFG_OUT_HIGH);
+			GPIO_setConfig(_EEG_CS,
+			GPIO_CFG_OUT_STD | GPIO_CFG_OUT_STR_LOW | GPIO_CFG_OUT_LOW);
+			GPIO_setConfig(EEG_START,
+			GPIO_CFG_OUT_STD | GPIO_CFG_OUT_STR_LOW | GPIO_CFG_OUT_HIGH);
+			Task_sleep(150000 / Clock_tickPeriod);
+			ADS_init(CONFIG_SPI_EEG, _EEG_CS);
+//			uint8 adsId = ADS_getDeviceID(); // 0x90 != adsId -> throw error?
+			enableInterrupt = true;
+			if (actOnInterrupt) {
+				eegInterrupt(true);
+			}
+		}
+		// assumes this function is not called unless channel config has changed
+		ADS_enableChannels(esloSettings[Set_EEG1], esloSettings[Set_EEG2],
+				esloSettings[Set_EEG3], esloSettings[Set_EEG4]);
+	}
+	if (USE_EEG(esloSettings)
+			== ESLO_MODULE_OFF& shdnState == GPIO_CFG_OUT_HIGH) {
+		eegInterrupt(true); // always turn off before shutting down
+		GPIO_setConfig(_EEG_CS, GPIO_CFG_IN_NOPULL);
+		GPIO_setConfig(EEG_START, GPIO_CFG_IN_NOPULL);
+		GPIO_write(_SHDN, GPIO_CFG_OUT_LOW);
+		enableInterrupt = false;
+	}
+	return enableInterrupt;
+}
+
+static void xlInterrupt(bool enableInterrupt) {
+	if (enableInterrupt) {
 		GPIO_enableInt(AXY_INT1);
-		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE); // enable
 	} else {
-		lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_POWER_DOWN);
+		GPIO_disableInt(AXY_INT1);
 	}
+}
 
-	if (USE_MG == ESLO_MODULE_ON) {
-		GPIO_enableInt(AXY_MAG);
-		lsm303agr_mag_operating_mode_set(&dev_ctx_mg,
-				LSM303AGR_CONTINUOUS_MODE);
+static uint8_t updateXlFromSettings(bool actOnInterrupt) {
+	bool enableInterrupt;
+
+	if (USE_AXY(esloSettings) == ESLO_MODULE_ON) {
+		switch (esloSettings[Set_AxyMode]) {
+		case 1:
+			lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_1Hz);
+			break;
+		case 2:
+			lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_10Hz);
+		}
+		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE); // clear int
+		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE); // enable
+		enableInterrupt = true;
+		if (actOnInterrupt) {
+			xlInterrupt(true);
+		}
 	} else {
-		lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_POWER_DOWN);
+		xlInterrupt(false); // always turn off before powering down
+		lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_POWER_DOWN);
+		enableInterrupt = false;
 	}
+	return enableInterrupt;
 }
 
 /*********************************************************************
@@ -588,7 +698,7 @@ static void simple_peripheral_spin(void) {
 void SimplePeripheral_createTask(void) {
 	Task_Params taskParams;
 
-	// Configure task
+// Configure task
 	Task_Params_init(&taskParams);
 	taskParams.stack = spTaskStack;
 	taskParams.stackSize = SP_TASK_STACK_SIZE;
@@ -607,34 +717,34 @@ void SimplePeripheral_createTask(void) {
  */
 static void SimplePeripheral_init(void) {
 	BLE_LOG_INT_TIME(0, BLE_LOG_MODULE_APP, "APP : ---- init ", SP_TASK_PRIORITY);
-	// ******************************************************************
-	// N0 STACK API CALLS CAN OCCUR BEFORE THIS CALL TO ICall_registerApp
-	// ******************************************************************
-	// Register the current thread as an ICall dispatcher application
-	// so that the application can send and receive messages.
+// ******************************************************************
+// N0 STACK API CALLS CAN OCCUR BEFORE THIS CALL TO ICall_registerApp
+// ******************************************************************
+// Register the current thread as an ICall dispatcher application
+// so that the application can send and receive messages.
 	ICall_registerApp(&selfEntity, &syncEvent);
 
 #ifdef USE_RCOSC
-	// Set device's Sleep Clock Accuracy
+// Set device's Sleep Clock Accuracy
 #if ( HOST_CONFIG & ( CENTRAL_CFG | PERIPHERAL_CFG ) )
 	HCI_EXT_SetSCACmd(500);
 #endif // (CENTRAL_CFG | PERIPHERAL_CFG)
 	RCOSC_enableCalibration();
 #endif // USE_RCOSC
 
-	// Create an RTOS queue for message from profile to be sent to app.
+// Create an RTOS queue for message from profile to be sent to app.
 	appMsgQueueHandle = Util_constructQueue(&appMsgQueue);
 
-	// Create one-shot clock for internal periodic events.
+// Create one-shot clock for internal periodic events.
 	Util_constructClock(&clkPeriodic, SimplePeripheral_clockHandler,
 	SP_PERIODIC_EVT_PERIOD, 0, false, (UArg) &argPeriodic);
 
-	// Set the Device Name characteristic in the GAP GATT Service
-	// For more information, see the section in the User's Guide:
-	// http://software-dl.ti.com/lprf/ble5stack-latest/
+// Set the Device Name characteristic in the GAP GATT Service
+// For more information, see the section in the User's Guide:
+// http://software-dl.ti.com/lprf/ble5stack-latest/
 	GGS_SetParameter(GGS_DEVICE_NAME_ATT, GAP_DEVICE_NAME_LEN, attDeviceName);
 
-	// Configure GAP
+// Configure GAP
 	{
 		uint16_t paramUpdateDecision = DEFAULT_PARAM_UPDATE_REQ_DECISION;
 
@@ -642,23 +752,23 @@ static void SimplePeripheral_init(void) {
 		GAP_SetParamValue(GAP_PARAM_LINK_UPDATE_DECISION, paramUpdateDecision);
 	}
 
-	// Setup the GAP Bond Manager. For more information see the GAP Bond Manager
-	// section in the User's Guide
+// Setup the GAP Bond Manager. For more information see the GAP Bond Manager
+// section in the User's Guide
 	setBondManagerParameters();
 
-	// Initialize GATT attributes
+// Initialize GATT attributes
 	GGS_AddService(GATT_ALL_SERVICES);// GAP GATT Service
 	GATTServApp_AddService(GATT_ALL_SERVICES);   // GATT Service
 	DevInfo_AddService();                        // Device Information Service
 	SimpleProfile_AddService(GATT_ALL_SERVICES); // Simple GATT Profile
 
-	// Setup the SimpleProfile Characteristic Values
-	// For more information, see the GATT and GATTServApp sections in the User's Guide:
-	// http://software-dl.ti.com/lprf/ble5stack-latest/
+// Setup the SimpleProfile Characteristic Values
+// For more information, see the GATT and GATTServApp sections in the User's Guide:
+// http://software-dl.ti.com/lprf/ble5stack-latest/
 	{
 		uint8_t charValue1[SIMPLEPROFILE_CHAR1_LEN] = { 0 };
 		uint8_t charValue2[SIMPLEPROFILE_CHAR2_LEN] = { 0 };
-		uint8_t charValue3[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
+//		uint8_t charValue3[SIMPLEPROFILE_CHAR3_LEN] = { 0 }; // set by ESLO init
 		uint8_t charValue4[SIMPLEPROFILE_CHAR4_LEN] = { 0 };
 		uint8_t charValue5[SIMPLEPROFILE_CHAR5_LEN] = { 0 };
 
@@ -666,30 +776,30 @@ static void SimplePeripheral_init(void) {
 				charValue1);
 		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR2, SIMPLEPROFILE_CHAR2_LEN,
 				charValue2);
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
-				charValue3);
+//		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
+//				charValue3);
 		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4, SIMPLEPROFILE_CHAR4_LEN,
 				charValue4);
 		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5, SIMPLEPROFILE_CHAR5_LEN,
 				charValue5);
 	}
 
-	// Register callback with SimpleGATTprofile
+// Register callback with SimpleGATTprofile
 	SimpleProfile_RegisterAppCBs(&SimplePeripheral_simpleProfileCBs);
 
-	// Start Bond Manager and register callback
+// Start Bond Manager and register callback
 	VOID GAPBondMgr_Register(&SimplePeripheral_BondMgrCBs);
 
-	// Register with GAP for HCI/Host messages. This is needed to receive HCI
-	// events. For more information, see the HCI section in the User's Guide:
-	// http://software-dl.ti.com/lprf/ble5stack-latest/
+// Register with GAP for HCI/Host messages. This is needed to receive HCI
+// events. For more information, see the HCI section in the User's Guide:
+// http://software-dl.ti.com/lprf/ble5stack-latest/
 	GAP_RegisterForMsgs(selfEntity);
 
-	// Register for GATT local events and ATT Responses pending for transmission
+// Register for GATT local events and ATT Responses pending for transmission
 	GATT_RegisterForMsgs(selfEntity);
 
-	// Set default values for Data Length Extension
-	// Extended Data Length Feature is already enabled by default
+// Set default values for Data Length Extension
+// Extended Data Length Feature is already enabled by default
 	{
 		// Set initial values to maximum, RX is set to max. by default(251 octets, 2120us)
 		// Some brand smartphone is essentially needing 251/2120, so we set them here.
@@ -703,18 +813,18 @@ static void SimplePeripheral_init(void) {
 				APP_SUGGESTED_TX_TIME);
 	}
 
-	// Initialize GATT Client
+// Initialize GATT Client
 	GATT_InitClient("");
 
-	// Initialize Connection List
+// Initialize Connection List
 	SimplePeripheral_clearConnListEntry(LINKDB_CONNHANDLE_ALL);
 
 	BLE_LOG_INT_TIME(0, BLE_LOG_MODULE_APP, "APP : ---- call GAP_DeviceInit", GAP_PROFILE_PERIPHERAL);
-	//Initialize GAP layer for Peripheral role and register to receive GAP events
+//Initialize GAP layer for Peripheral role and register to receive GAP events
 	GAP_DeviceInit(GAP_PROFILE_PERIPHERAL, selfEntity, addrMode,
 			&pRandomAddress);
 
-	// Initialize array to store connection handle and RSSI values
+// Initialize array to store connection handle and RSSI values
 	SimplePeripheral_initPHYRSSIArray();
 
 	GPIO_init();
@@ -733,10 +843,10 @@ static void SimplePeripheral_init(void) {
  * @param   a0, a1 - not used.
  */
 static void SimplePeripheral_taskFxn(UArg a0, UArg a1) {
-	// Initialize application
+// Initialize application
 	SimplePeripheral_init();
 
-	// Application main loop
+// Application main loop
 	for (;;) {
 		uint32_t events;
 
@@ -800,7 +910,7 @@ static void SimplePeripheral_taskFxn(UArg a0, UArg a1) {
  * @return  TRUE if safe to deallocate incoming message, FALSE otherwise.
  */
 static uint8_t SimplePeripheral_processStackMsg(ICall_Hdr *pMsg) {
-	// Always dealloc pMsg unless set otherwise
+// Always dealloc pMsg unless set otherwise
 	uint8_t safeToDealloc = TRUE;
 
 	BLE_LOG_INT_INT(0, BLE_LOG_MODULE_APP, "APP : Stack msg status=%d, event=0x%x\n", pMsg->status, pMsg->event);
@@ -911,10 +1021,10 @@ static uint8_t SimplePeripheral_processGATTMsg(gattMsgEvent_t *pMsg) {
 //    Display_printf(dispHandle, SP_ROW_STATUS_1, 0, "MTU Size: %d", pMsg->msg.mtuEvt.MTU);
 	}
 
-	// Free message payload. Needed only for ATT Protocol messages
+// Free message payload. Needed only for ATT Protocol messages
 	GATT_bm_free(&pMsg->msg, pMsg->method);
 
-	// It's safe to free the incoming message
+// It's safe to free the incoming message
 	return (TRUE);
 }
 
@@ -986,7 +1096,7 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 		break;
 	}
 
-	// Free message data if it exists and we are to dealloc
+// Free message data if it exists and we are to dealloc
 	if ((dealloc == TRUE) && (pMsg->pData != NULL)) {
 		ICall_free(pMsg->pData);
 	}
@@ -1275,23 +1385,39 @@ static void SimplePeripheral_charValueChangeCB(uint8_t paramId) {
  * @param   paramID - parameter ID of the value that was changed.
  */
 static void SimplePeripheral_processCharValueChangeEvt(uint8_t paramId) {
-	uint8_t newValueChar1[SIMPLEPROFILE_CHAR1_LEN];
-	uint8_t newValueChar3[SIMPLEPROFILE_CHAR3_LEN];
+	uint8_t len;
+	bStatus_t ret;
 
 	switch (paramId) {
-	// only characteristics with GATT_PROP_WRITE, all others are written elsewhere
 	case SIMPLEPROFILE_CHAR1:
-		SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR1, newValueChar1);
-		GPIO_write(LED_0, newValueChar1[0]);
+		len = SIMPLEPROFILE_CHAR1_LEN;
+		break;
+	case SIMPLEPROFILE_CHAR3:
+		len = SIMPLEPROFILE_CHAR3_LEN;
+		break;
+	default:
+		break;
+	}
+
+	uint8_t *pValue = ICall_malloc(len); // dynamic allocation
+
+	switch (paramId) {
+// only characteristics with GATT_PROP_WRITE, all others are written elsewhere
+	case SIMPLEPROFILE_CHAR1:
+		ret = SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR1, pValue);
+		GPIO_write(LED_0, pValue[0]);
 		break;
 
 	case SIMPLEPROFILE_CHAR3:
-		SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR3, newValueChar3);
+		ret = SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR3, pValue);
+		mapEsloSettings(pValue);
 		break;
-
 	default:
 		// should not reach here!
 		break;
+	}
+	if (ret) {
+		ICall_free(pValue);
 	}
 }
 
@@ -1331,7 +1457,7 @@ static void SimplePeripheral_performPeriodicTask(void) {
 static void SimplePeripheral_updateRPA(void) {
 	uint8_t *pRpaNew;
 
-	// Read the current RPA.
+// Read the current RPA.
 	pRpaNew = GAP_GetDevAddress(FALSE);
 
 	if (memcmp(pRpaNew, rpa, B_ADDR_LEN)) {
@@ -1396,11 +1522,11 @@ bool SimplePeripheral_doSetConnPhy(uint8 index) {
 		return FALSE;
 	}
 
-	// Set Phy Preference on the current connection. Apply the same value
-	// for RX and TX.
-	// If auto PHY update is not selected and if auto PHY update is enabled, then
-	// stop auto PHY update
-	// Note PHYs are already enabled by default in build_config.opt in stack project.
+// Set Phy Preference on the current connection. Apply the same value
+// for RX and TX.
+// If auto PHY update is not selected and if auto PHY update is enabled, then
+// stop auto PHY update
+// Note PHYs are already enabled by default in build_config.opt in stack project.
 	if (phy[index] != AUTO_PHY_UPDATE) {
 		// Cancel RSSI reading  and auto phy changing
 		SimplePeripheral_stopAutoPhyChange(connList[connIndex].connHandle);
@@ -1479,8 +1605,8 @@ static void SimplePeripheral_processAdvEvent(spGapAdvEventData_t *pEventData) {
 		break;
 	}
 
-	// All events have associated memory to free except the insufficient memory
-	// event
+// All events have associated memory to free except the insufficient memory
+// event
 	if (pEventData->event != GAP_EVT_INSUFFICIENT_MEMORY) {
 		ICall_free(pEventData->pBuf);
 	}
@@ -1497,7 +1623,7 @@ static void SimplePeripheral_pairStateCb(uint16_t connHandle, uint8_t state,
 		uint8_t status) {
 	spPairStateData_t *pData = ICall_malloc(sizeof(spPairStateData_t));
 
-	// Allocate space for the event data.
+// Allocate space for the event data.
 	if (pData) {
 		pData->state = state;
 		pData->connHandle = connHandle;
@@ -1522,7 +1648,7 @@ static void SimplePeripheral_passcodeCb(uint8_t *pDeviceAddr,
 		uint32_t numComparison) {
 	spPasscodeData_t *pData = ICall_malloc(sizeof(spPasscodeData_t));
 
-	// Allocate space for the passcode event.
+// Allocate space for the passcode event.
 	if (pData) {
 		pData->connHandle = connHandle;
 		memcpy(pData->deviceAddr, pDeviceAddr, B_ADDR_LEN);
@@ -1590,13 +1716,13 @@ static void SimplePeripheral_processPairState(spPairStateData_t *pPairData) {
  * @return  none
  */
 static void SimplePeripheral_processPasscode(spPasscodeData_t *pPasscodeData) {
-	// Display passcode to user
+// Display passcode to user
 	if (pPasscodeData->uiOutputs != 0) {
 //    Display_printf(dispHandle, SP_ROW_CONNECTION, 0, "Passcode: %d",
 //                   B_APP_DEFAULT_PASSCODE);
 	}
 
-	// Send passcode response
+// Send passcode response
 	GAPBondMgr_PasscodeRsp(pPasscodeData->connHandle, SUCCESS,
 			B_APP_DEFAULT_PASSCODE);
 }
@@ -1609,7 +1735,7 @@ static void SimplePeripheral_processPasscode(spPasscodeData_t *pPasscodeData) {
  * @param pReport pointer to connection event report
  */
 static void SimplePeripheral_connEvtCB(Gap_ConnEventRpt_t *pReport) {
-	// Enqueue the event for processing in the app context.
+// Enqueue the event for processing in the app context.
 	if (SimplePeripheral_enqueueMsg(SP_CONN_EVT, pReport) != SUCCESS) {
 		ICall_free(pReport);
 	}
@@ -1623,7 +1749,7 @@ static void SimplePeripheral_connEvtCB(Gap_ConnEventRpt_t *pReport) {
  * @param pReport pointer to connection event report
  */
 static void SimplePeripheral_processConnEvt(Gap_ConnEventRpt_t *pReport) {
-	// Get index from handle
+// Get index from handle
 	uint8_t connIndex = SimplePeripheral_getConnIndex(pReport->handle);
 
 	if (connIndex >= MAX_NUM_BLE_CONNS) {
@@ -1631,7 +1757,7 @@ static void SimplePeripheral_processConnEvt(Gap_ConnEventRpt_t *pReport) {
 		return;
 	}
 
-	// If auto phy change is enabled
+// If auto phy change is enabled
 	if (connList[connIndex].isAutoPHYEnable == TRUE) {
 		// Read the RSSI
 		HCI_ReadRssiCmd(pReport->handle);
@@ -1650,7 +1776,7 @@ static status_t SimplePeripheral_enqueueMsg(uint8_t event, void *pData) {
 	uint8_t success;
 	spEvt_t *pMsg = ICall_malloc(sizeof(spEvt_t));
 
-	// Create dynamic pointer to message.
+// Create dynamic pointer to message.
 	if (pMsg) {
 		pMsg->event = event;
 		pMsg->pData = pData;
@@ -1749,7 +1875,7 @@ static uint8_t SimplePeripheral_addConn(uint16_t connHandle) {
 	uint8_t i;
 	uint8_t status = bleNoResources;
 
-	// Try to find an available entry
+// Try to find an available entry
 	for (i = 0; i < MAX_NUM_BLE_CONNS; i++) {
 		if (connList[i].connHandle == LINKDB_CONNHANDLE_INVALID) {
 			// Found available entry to put a new connection info in
@@ -1822,7 +1948,7 @@ static uint8_t SimplePeripheral_getConnIndex(uint16_t connHandle) {
  */
 static uint8_t SimplePeripheral_clearConnListEntry(uint16_t connHandle) {
 	uint8_t i;
-	// Set to invalid connection index initially
+// Set to invalid connection index initially
 	uint8_t connIndex = MAX_NUM_BLE_CONNS;
 
 	if (connHandle != LINKDB_CONNHANDLE_ALL) {
@@ -1833,7 +1959,7 @@ static uint8_t SimplePeripheral_clearConnListEntry(uint16_t connHandle) {
 		}
 	}
 
-	// Clear specific handle or all handles
+// Clear specific handle or all handles
 	for (i = 0; i < MAX_NUM_BLE_CONNS; i++) {
 		if ((connIndex == i) || (connHandle == LINKDB_CONNHANDLE_ALL)) {
 			connList[i].connHandle = LINKDB_CONNHANDLE_INVALID;
@@ -1935,21 +2061,21 @@ static void SimplePeripheral_processParamUpdate(uint16_t connHandle) {
 		return;
 	}
 
-	// Deconstruct the clock object
+// Deconstruct the clock object
 	Clock_destruct(connList[connIndex].pUpdateClock);
-	// Free clock struct, only in case it is not NULL
+// Free clock struct, only in case it is not NULL
 	if (connList[connIndex].pUpdateClock != NULL) {
 		ICall_free(connList[connIndex].pUpdateClock);
 		connList[connIndex].pUpdateClock = NULL;
 	}
-	// Free ParamUpdateEventData, only in case it is not NULL
+// Free ParamUpdateEventData, only in case it is not NULL
 	if (connList[connIndex].pParamUpdateEventData != NULL)
 		ICall_free(connList[connIndex].pParamUpdateEventData);
 
-	// Send parameter update
+// Send parameter update
 	bStatus_t status = GAP_UpdateLinkParamReq(&req);
 
-	// If there is an ongoing update, queue this for when the udpate completes
+// If there is an ongoing update, queue this for when the udpate completes
 	if (status == bleAlreadyInRequestedMode) {
 		spConnHandleEntry_t *connHandleEntry = ICall_malloc(
 				sizeof(spConnHandleEntry_t));
@@ -1973,7 +2099,7 @@ static void SimplePeripheral_processParamUpdate(uint16_t connHandle) {
 static void SimplePeripheral_processCmdCompleteEvt(hciEvt_CmdComplete_t *pMsg) {
 	uint8_t status = pMsg->pReturnParam[0];
 
-	//Find which command this command complete is for
+//Find which command this command complete is for
 	switch (pMsg->cmdOpcode) {
 	case HCI_READ_RSSI: {
 		int8 rssi = (int8) pMsg->pReturnParam[3];
@@ -2092,7 +2218,7 @@ static void SimplePeripheral_processCmdCompleteEvt(hciEvt_CmdComplete_t *pMsg) {
  * @return  index of connection handle
  */
 static void SimplePeripheral_initPHYRSSIArray(void) {
-	//Initialize array to store connection handle and RSSI values
+//Initialize array to store connection handle and RSSI values
 	memset(connList, 0, sizeof(connList));
 	for (uint8_t index = 0; index < MAX_NUM_BLE_CONNS; index++) {
 		connList[index].connHandle = SP_INVALID_HANDLE;
@@ -2114,15 +2240,15 @@ static void SimplePeripheral_initPHYRSSIArray(void) {
 static status_t SimplePeripheral_startAutoPhyChange(uint16_t connHandle) {
 	status_t status = FAILURE;
 
-	// Get connection index from handle
+// Get connection index from handle
 	uint8_t connIndex = SimplePeripheral_getConnIndex(connHandle);
 	SIMPLEPERIPHERAL_ASSERT(connIndex < MAX_NUM_BLE_CONNS);
 
-	// Start Connection Event notice for RSSI calculation
+// Start Connection Event notice for RSSI calculation
 	status = Gap_RegisterConnEventCb(SimplePeripheral_connEvtCB,
 			GAP_CB_REGISTER, connHandle);
 
-	// Flag in connection info if successful
+// Flag in connection info if successful
 	if (status == SUCCESS) {
 		connList[connIndex].isAutoPHYEnable = TRUE;
 	}
@@ -2141,14 +2267,14 @@ static status_t SimplePeripheral_startAutoPhyChange(uint16_t connHandle) {
  *          bleIncorrectMode: No link
  */
 static status_t SimplePeripheral_stopAutoPhyChange(uint16_t connHandle) {
-	// Get connection index from handle
+// Get connection index from handle
 	uint8_t connIndex = SimplePeripheral_getConnIndex(connHandle);
 	SIMPLEPERIPHERAL_ASSERT(connIndex < MAX_NUM_BLE_CONNS);
 
-	// Stop connection event notice
+// Stop connection event notice
 	Gap_RegisterConnEventCb(NULL, GAP_CB_UNREGISTER, connHandle);
 
-	// Also update the phychange request status for active RSSI tracking connection
+// Also update the phychange request status for active RSSI tracking connection
 	connList[connIndex].phyCngRq = FALSE;
 	connList[connIndex].isAutoPHYEnable = FALSE;
 
@@ -2163,7 +2289,7 @@ static status_t SimplePeripheral_stopAutoPhyChange(uint16_t connHandle) {
  */
 static status_t SimplePeripheral_setPhy(uint16_t connHandle, uint8_t allPhys,
 		uint8_t txPhy, uint8_t rxPhy, uint16_t phyOpts) {
-	// Allocate list entry to store handle for command status
+// Allocate list entry to store handle for command status
 	spConnHandleEntry_t *connHandleEntry = ICall_malloc(
 			sizeof(spConnHandleEntry_t));
 
