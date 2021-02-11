@@ -596,7 +596,7 @@ static void ESLO_startup(void) {
 	// init Settings
 	esloSettings[Set_EEG1] = 1; // only one channel at init
 	esloSettings[Set_TxPower] = 1; // 1 = Tx0, assumes default in SysConfig
-	esloSettings[Set_AxyMode] = 2;
+	esloSettings[Set_AxyMode] = 1;
 	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
 			esloSettings);
 
@@ -716,7 +716,7 @@ static uint8_t updateXlFromSettings(bool actOnInterrupt) {
 			lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_1Hz);
 			break;
 		case 2:
-			lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_100Hz);
+			lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_10Hz);
 			break;
 		default:
 			break;
