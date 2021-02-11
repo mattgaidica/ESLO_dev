@@ -84,8 +84,8 @@ extern "C"
 #define SIMPLEPROFILE_CHAR1_LEN			  1		// LED_0
 #define SIMPLEPROFILE_CHAR2_LEN			  4		// vBatt
 #define SIMPLEPROFILE_CHAR3_LEN			  16	// settings
-#define SIMPLEPROFILE_CHAR4_LEN			  200 	// header + EEG
-#define SIMPLEPROFILE_CHAR5_LEN           200	// header + AXY
+#define SIMPLEPROFILE_CHAR4_LEN			  200 	// EEG (eslo packets)
+#define SIMPLEPROFILE_CHAR5_LEN           128	// AXY (eslo packets)
 
 /*********************************************************************
  * TYPEDEFS

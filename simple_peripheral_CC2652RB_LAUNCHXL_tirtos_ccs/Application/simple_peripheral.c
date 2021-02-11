@@ -126,6 +126,7 @@
 #define SP_SEND_PARAM_UPDATE_EVT             8
 #define SP_CONN_EVT                          9
 #define ES_EEG_NOTIF						 10
+#define ES_XL_NOTIF							 11
 
 // Internal Events for RTOS application
 #define SP_ICALL_EVT                         ICALL_MSG_EVENT_ID // Event_Id_31
@@ -398,12 +399,16 @@ int32_t eeg3Buffer[PACKET_SZ_EEG];
 int32_t eeg4Buffer[PACKET_SZ_EEG];
 uint8_t iEEG = 0;
 
+#define PACKET_SZ_XL 32
+int32_t xlXBuffer[PACKET_SZ_XL];
+int32_t xlYBuffer[PACKET_SZ_XL];
+int32_t xlZBuffer[PACKET_SZ_XL];
+
 /* AXY Vars */
 stmdev_ctx_t dev_ctx_xl;
 stmdev_ctx_t dev_ctx_mg;
 static axis3bit16_t data_raw_acceleration;
-static axis3bit16_t data_raw_magnetic;
-static uint8_t whoamI, rst;
+static uint8_t whoamI;
 uint32_t XL_TIMEOUT = 500000;
 
 /* NAND Vars */
@@ -442,6 +447,7 @@ static void mapEsloSettings(uint8_t *pValue) {
 		updateXlFromSettings(true);
 	}
 	if (esloSettings[Set_TxPower] != *(pValue + Set_TxPower)) {
+		esloSettings[Set_TxPower] = *(pValue + Set_TxPower);
 		switch (*(pValue + Set_TxPower)) {
 		case 0:
 			HCI_EXT_SetTxPowerCmd(HCI_EXT_TX_POWER_MINUS_20_DBM);
@@ -458,8 +464,8 @@ static void mapEsloSettings(uint8_t *pValue) {
 		default:
 			break;
 		}
-		esloSettings[Set_TxPower] = *(pValue + Set_TxPower);
 	}
+
 	// write time?
 	uint32_t newTime = { 0 }; // 2021 time
 	memcpy(&newTime, pValue + Set_Time1, 4); // prep for eslo packet
@@ -471,7 +477,11 @@ static uint8_t USE_EEG(uint8_t *esloSettings) {
 }
 
 static uint8_t USE_AXY(uint8_t *esloSettings) {
-	return esloSettings[Set_AxyMode] & 0x01;
+	uint8_t ret = 0x00;
+	if (esloSettings[Set_AxyMode] > 0) {
+		ret = 0x01;
+	}
+	return ret;
 }
 
 static void eegDataHandler(void) {
@@ -524,11 +534,59 @@ static void eegDataHandler(void) {
 	}
 }
 
+static void xlDataHandler(void) {
+	uint32_t packet;
+	uint8_t iFifo;
+	lsm303agr_fifo_src_reg_a_t fifo_reg;
+	lsm303agr_xl_fifo_status_get(&dev_ctx_xl, &fifo_reg);
+
+	if (USE_AXY(esloSettings) == ESLO_MODULE_ON) { // double check
+		for (iFifo = 0; iFifo <= fifo_reg.fss; iFifo++) { // 32 samples
+			memset(data_raw_acceleration.u8bit, 0x00, 3 * sizeof(int16_t));
+			lsm303agr_acceleration_raw_get(&dev_ctx_xl,
+					data_raw_acceleration.u8bit);
+
+			eslo.type = Type_AxyXlx;
+			eslo.data = (uint32_t) data_raw_acceleration.i16bit[0];
+			ESLO_Packet(eslo, &packet);
+			xlXBuffer[iFifo] = packet;
+//		ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+
+			eslo.type = Type_AxyXly;
+			eslo.data = (uint32_t) data_raw_acceleration.i16bit[1];
+			ESLO_Packet(eslo, &packet);
+			xlYBuffer[iFifo] = packet;
+//		ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+
+			eslo.type = Type_AxyXlz;
+			eslo.data = (uint32_t) data_raw_acceleration.i16bit[2];
+			ESLO_Packet(eslo, &packet);
+			xlZBuffer[iFifo] = packet;
+//		ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+
+			axyCount++;
+
+			// !!handle ret
+		}
+
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+		SIMPLEPROFILE_CHAR5_LEN, xlXBuffer);
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+		SIMPLEPROFILE_CHAR5_LEN, xlYBuffer);
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+		SIMPLEPROFILE_CHAR5_LEN, xlZBuffer);
+
+		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
+		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
+	}
+}
+
 void eegDataReady(uint_least8_t index) {
 	SimplePeripheral_enqueueMsg(ES_EEG_NOTIF, NULL);
 }
 
 void axyXlReady(uint_least8_t index) {
+	SimplePeripheral_enqueueMsg(ES_XL_NOTIF, NULL);
 }
 
 void axyMagReady(uint_least8_t index) {
@@ -538,6 +596,7 @@ static void ESLO_startup(void) {
 	// init Settings
 	esloSettings[Set_EEG1] = 1; // only one channel at init
 	esloSettings[Set_TxPower] = 1; // 1 = Tx0, assumes default in SysConfig
+	esloSettings[Set_AxyMode] = 2;
 	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
 			esloSettings);
 
@@ -566,27 +625,25 @@ static void ESLO_startup(void) {
 	lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_DISABLE);
 	lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_POWER_DOWN);
 
-	if (USE_AXY(esloSettings) == ESLO_MODULE_ON) {
-		whoamI = 0;
-		lsm303agr_xl_device_id_get(&dev_ctx_xl, &whoamI);
-		while (whoamI != LSM303AGR_ID_XL) {
-			while (1) {
-			}
+	whoamI = 0;
+	lsm303agr_xl_device_id_get(&dev_ctx_xl, &whoamI);
+	while (whoamI != LSM303AGR_ID_XL) {
+		while (1) {
 		}
-		lsm303agr_xl_block_data_update_set(&dev_ctx_xl, PROPERTY_ENABLE);
-		lsm303agr_xl_full_scale_set(&dev_ctx_xl, LSM303AGR_2g);
-		lsm303agr_xl_operating_mode_set(&dev_ctx_xl, LSM303AGR_HR_12bit);
-		lsm303agr_xl_fifo_set(&dev_ctx_xl, PROPERTY_ENABLE);
-		lsm303agr_ctrl_reg3_a_t int1Val;
-		int1Val.i1_overrun = 1;
-		int1Val.i1_wtm = 0;
-		int1Val.i1_drdy2 = 0;
-		int1Val.i1_drdy1 = 0;
-		int1Val.i1_aoi2 = 0;
-		int1Val.i1_aoi1 = 0;
-		int1Val.i1_click = 0;
-		lsm303agr_xl_pin_int1_config_set(&dev_ctx_xl, &int1Val);
 	}
+	lsm303agr_xl_block_data_update_set(&dev_ctx_xl, PROPERTY_ENABLE);
+	lsm303agr_xl_full_scale_set(&dev_ctx_xl, LSM303AGR_2g);
+	lsm303agr_xl_operating_mode_set(&dev_ctx_xl, LSM303AGR_HR_12bit);
+	lsm303agr_xl_fifo_set(&dev_ctx_xl, PROPERTY_ENABLE);
+	lsm303agr_ctrl_reg3_a_t int1Val;
+	int1Val.i1_overrun = 1; // trigger interrupt
+	int1Val.i1_wtm = 0;
+	int1Val.i1_drdy2 = 0;
+	int1Val.i1_drdy1 = 0;
+	int1Val.i1_aoi2 = 0;
+	int1Val.i1_aoi1 = 0;
+	int1Val.i1_click = 0;
+	lsm303agr_xl_pin_int1_config_set(&dev_ctx_xl, &int1Val);
 
 	ADC_Params_init(&adcParams);
 	adc = ADC_open(R_VBATT, &adcParams);
@@ -595,7 +652,7 @@ static void ESLO_startup(void) {
 		}
 	}
 
-	bool enableXlInterrupt = updateXlFromSettings(true); // turn on interrupt here
+	updateXlFromSettings(true); // turn on interrupt here
 
 	eegInterrupt(enableEEGInterrupt); // turn on now
 }
@@ -659,7 +716,10 @@ static uint8_t updateXlFromSettings(bool actOnInterrupt) {
 			lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_1Hz);
 			break;
 		case 2:
-			lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_10Hz);
+			lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_100Hz);
+			break;
+		default:
+			break;
 		}
 		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE); // clear int
 		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE); // enable
@@ -1050,19 +1110,15 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 	case SP_CHAR_CHANGE_EVT:
 		SimplePeripheral_processCharValueChangeEvt(*(uint8_t*) (pMsg->pData));
 		break;
-
 	case SP_ADV_EVT:
 		SimplePeripheral_processAdvEvent((spGapAdvEventData_t*) (pMsg->pData));
 		break;
-
 	case SP_PAIR_STATE_EVT:
 		SimplePeripheral_processPairState((spPairStateData_t*) (pMsg->pData));
 		break;
-
 	case SP_PASSCODE_EVT:
 		SimplePeripheral_processPasscode((spPasscodeData_t*) (pMsg->pData));
 		break;
-
 	case SP_PERIODIC_EVT:
 		SimplePeripheral_performPeriodicTask();
 		break;
@@ -1086,11 +1142,12 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 	case SP_CONN_EVT:
 		SimplePeripheral_processConnEvt((Gap_ConnEventRpt_t*) (pMsg->pData));
 		break;
-
 	case ES_EEG_NOTIF:
 		eegDataHandler();
 		break;
-
+	case ES_XL_NOTIF:
+		xlDataHandler();
+		break;
 	default:
 		// Do nothing.
 		break;
