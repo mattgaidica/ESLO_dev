@@ -129,7 +129,7 @@ void loopCallback();
 
 void loopCallback() {
 	if (GPIO_read(DEBUG) == 0) {
-		GPIO_write(LED_0, GPIO_CFG_OUT_LOW);
+		GPIO_write(LED_0, ESLO_LOW);
 	} else {
 		GPIO_toggle(LED_0);
 	}
@@ -140,7 +140,7 @@ void loopCallback() {
 
 void timerCallback(Timer_Handle myHandle, int_fast16_t status) {
 	if (GPIO_read(DEBUG) == 0) {
-		GPIO_write(LED_0, GPIO_CFG_OUT_LOW);
+		GPIO_write(LED_0, ESLO_LOW);
 	} else {
 		GPIO_toggle(LED_0);
 	}
@@ -276,7 +276,7 @@ void ESLO_startup(void) {
 
 	/* ADS129X - Defaults in SysConfig */
 	if (USE_EEG == ESLO_MODULE_ON) {
-		GPIO_write(_SHDN, GPIO_CFG_OUT_HIGH);
+		GPIO_write(_SHDN, ESLO_HIGH);
 		GPIO_setConfig(_EEG_CS,
 		GPIO_CFG_OUT_STD | GPIO_CFG_OUT_STR_LOW | GPIO_CFG_OUT_LOW);
 		GPIO_setConfig(EEG_START,
@@ -286,7 +286,7 @@ void ESLO_startup(void) {
 		ADS_init(CONFIG_SPI_EEG, _EEG_CS);
 		uint8_t adsId = ADS_getDeviceID(); // 0x90
 	} else {
-		GPIO_write(_SHDN, GPIO_CFG_OUT_LOW); // redundant to Sysconfig
+		GPIO_write(_SHDN, ESLO_LOW); // redundant to Sysconfig
 	}
 
 	/* AXY */
@@ -406,12 +406,12 @@ void* mainThread(void *arg0) {
 		} else {
 			loopCount++;
 		}
-		GPIO_write(LED_0, GPIO_CFG_OUT_HIGH);
+		GPIO_write(LED_0, ELSO_HIGH);
 		Task_sleep(10000);
-		GPIO_write(LED_0, GPIO_CFG_OUT_LOW);
+		GPIO_write(LED_0, ESLO_LOW);
 		Task_sleep(200000); // 2s
 	}
-	GPIO_write(LED_0, GPIO_CFG_OUT_LOW);
+	GPIO_write(LED_0, ESLO_LOW);
 
 	SPI_init();
 	I2C_init();

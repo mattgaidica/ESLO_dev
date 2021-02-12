@@ -374,9 +374,12 @@ static void xlInterrupt(bool enableInterrupt);
 static uint8_t USE_EEG(uint8_t *esloSettings);
 static uint8_t USE_AXY(uint8_t *esloSettings);
 
-static void mapEsloSettings(uint8_t *pValue);
+static void mapEsloSettings(uint8_t *esloSettingsNew);
 
 uint8_t esloSettings[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
+uint8_t esloSettingsSleep[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
+
+bool isPaired = false;
 
 ADC_Handle adc;
 ADC_Params adcParams;
@@ -426,29 +429,38 @@ int32_t ch2;
 int32_t ch3;
 int32_t ch4;
 
-static void mapEsloSettings(uint8_t *pValue) {
-	if (esloSettings[Set_SleepWake] != *(pValue + Set_SleepWake)) {
+static void esloSleep() {
+	// right now zeros and sleep mode are same
+	uint8_t esloSettingsNew[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
+	// change settings for sleep mode
+	esloSettingsNew[Set_TxPower] = esloSettings[Set_TxPower];
+	// overwrite esloSettings and force sleep mode to take effect
+	mapEsloSettings(esloSettingsNew);
+}
 
+static void mapEsloSettings(uint8_t *esloSettingsNew) {
+	if (esloSettings[Set_SleepWake] != *(esloSettingsNew + Set_SleepWake)) {
+		esloSettings[Set_SleepWake] = *(esloSettingsNew + Set_SleepWake);
 	}
-	if (esloSettings[Set_EEG1] != *(pValue + Set_EEG1)
-			| esloSettings[Set_EEG2] != *(pValue + Set_EEG2)
-			| esloSettings[Set_EEG3] != *(pValue + Set_EEG3)
-			| esloSettings[Set_EEG4] != *(pValue + Set_EEG4)) {
+	if (esloSettings[Set_EEG1] != *(esloSettingsNew + Set_EEG1)
+			| esloSettings[Set_EEG2] != *(esloSettingsNew + Set_EEG2)
+			| esloSettings[Set_EEG3] != *(esloSettingsNew + Set_EEG3)
+			| esloSettings[Set_EEG4] != *(esloSettingsNew + Set_EEG4)) {
 		// set them first, EEG function uses them
-		esloSettings[Set_EEG1] = *(pValue + Set_EEG1);
-		esloSettings[Set_EEG2] = *(pValue + Set_EEG2);
-		esloSettings[Set_EEG3] = *(pValue + Set_EEG3);
-		esloSettings[Set_EEG4] = *(pValue + Set_EEG4);
+		esloSettings[Set_EEG1] = *(esloSettingsNew + Set_EEG1);
+		esloSettings[Set_EEG2] = *(esloSettingsNew + Set_EEG2);
+		esloSettings[Set_EEG3] = *(esloSettingsNew + Set_EEG3);
+		esloSettings[Set_EEG4] = *(esloSettingsNew + Set_EEG4);
 		updateEEGFromSettings(true);
 	}
-	if (esloSettings[Set_AxyMode] != *(pValue + Set_AxyMode)) {
+	if (esloSettings[Set_AxyMode] != *(esloSettingsNew + Set_AxyMode)) {
 		// set it first, Xl function uses them
-		esloSettings[Set_AxyMode] = *(pValue + Set_AxyMode);
+		esloSettings[Set_AxyMode] = *(esloSettingsNew + Set_AxyMode);
 		updateXlFromSettings(true);
 	}
-	if (esloSettings[Set_TxPower] != *(pValue + Set_TxPower)) {
-		esloSettings[Set_TxPower] = *(pValue + Set_TxPower);
-		switch (*(pValue + Set_TxPower)) {
+	if (esloSettings[Set_TxPower] != *(esloSettingsNew + Set_TxPower)) {
+		esloSettings[Set_TxPower] = *(esloSettingsNew + Set_TxPower);
+		switch (*(esloSettingsNew + Set_TxPower)) {
 		case 0:
 			HCI_EXT_SetTxPowerCmd(HCI_EXT_TX_POWER_MINUS_20_DBM);
 			break;
@@ -468,7 +480,7 @@ static void mapEsloSettings(uint8_t *pValue) {
 
 	// write time?
 	uint32_t newTime = { 0 }; // 2021 time
-	memcpy(&newTime, pValue + Set_Time1, 4); // prep for eslo packet
+	memcpy(&newTime, esloSettingsNew + Set_Time1, 4); // prep for eslo packet
 }
 
 static uint8_t USE_EEG(uint8_t *esloSettings) {
@@ -494,24 +506,37 @@ static void eegDataHandler(void) {
 		eslo.data = ch1;
 		ESLO_Packet(eslo, &packet);
 		eeg1Buffer[iEEG] = packet;
+		if (~isPaired) {
+			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+		}
 
 		eslo.type = Type_EEG2;
 		eslo.data = ch2;
 		ESLO_Packet(eslo, &packet);
 		eeg2Buffer[iEEG] = packet;
+		if (~isPaired) {
+			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+		}
 
 		eslo.type = Type_EEG3;
-		eslo.data = ch1;
+		eslo.data = ch3;
 		ESLO_Packet(eslo, &packet);
 		eeg3Buffer[iEEG] = packet;
+		if (~isPaired) {
+			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+		}
 
 		eslo.type = Type_EEG4;
-		eslo.data = ch1;
+		eslo.data = ch4;
 		ESLO_Packet(eslo, &packet);
 		eeg4Buffer[iEEG] = packet;
+		if (~isPaired) {
+			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+		}
+
 		iEEG++;
 
-		if (iEEG == PACKET_SZ_EEG) {
+		if (iEEG == PACKET_SZ_EEG & isPaired) {
 			if (esloSettings[Set_EEG1]) {
 				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
 				SIMPLEPROFILE_CHAR4_LEN, eeg1Buffer);
@@ -550,25 +575,32 @@ static void xlDataHandler(void) {
 			eslo.data = (uint32_t) data_raw_acceleration.i16bit[0];
 			ESLO_Packet(eslo, &packet);
 			xlXBuffer[iFifo] = packet;
-//		ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+			if (~isPaired) {
+				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+			}
 
 			eslo.type = Type_AxyXly;
 			eslo.data = (uint32_t) data_raw_acceleration.i16bit[1];
 			ESLO_Packet(eslo, &packet);
 			xlYBuffer[iFifo] = packet;
-//		ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+			if (~isPaired) {
+				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+			}
 
 			eslo.type = Type_AxyXlz;
 			eslo.data = (uint32_t) data_raw_acceleration.i16bit[2];
 			ESLO_Packet(eslo, &packet);
 			xlZBuffer[iFifo] = packet;
-//		ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+			if (~isPaired) {
+				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+			}
 
 			axyCount++;
 
 			// !!handle ret
 		}
 
+//		if ()
 		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
 		SIMPLEPROFILE_CHAR5_LEN, xlXBuffer);
 		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
@@ -594,9 +626,9 @@ void axyMagReady(uint_least8_t index) {
 
 static void ESLO_startup(void) {
 	// init Settings
-	esloSettings[Set_EEG1] = 1; // only one channel at init
-	esloSettings[Set_TxPower] = 1; // 1 = Tx0, assumes default in SysConfig
-	esloSettings[Set_AxyMode] = 1;
+	esloSettings[Set_EEG1] = 0x00; // only one channel at init
+	esloSettings[Set_TxPower] = 0x00; // 1 = Tx0, assumes default in SysConfig
+	esloSettings[Set_AxyMode] = 0x00;
 	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
 			esloSettings);
 
@@ -653,7 +685,6 @@ static void ESLO_startup(void) {
 	}
 
 	updateXlFromSettings(true); // turn on interrupt here
-
 	eegInterrupt(enableEEGInterrupt); // turn on now
 }
 
@@ -670,31 +701,31 @@ static uint8_t updateEEGFromSettings(bool actOnInterrupt) {
 	uint8_t shdnState = GPIO_read(_SHDN);
 
 	if (USE_EEG(esloSettings) == ESLO_MODULE_ON) {
-		if (shdnState == GPIO_CFG_OUT_LOW) {
-			GPIO_write(_SHDN, GPIO_CFG_OUT_HIGH);
+		if (shdnState == ESLO_LOW) {
+			GPIO_write(_SHDN, ESLO_HIGH);
+			Task_sleep(150000 / Clock_tickPeriod);
 			GPIO_setConfig(_EEG_CS,
 			GPIO_CFG_OUT_STD | GPIO_CFG_OUT_STR_LOW | GPIO_CFG_OUT_LOW);
 			GPIO_setConfig(EEG_START,
 			GPIO_CFG_OUT_STD | GPIO_CFG_OUT_STR_LOW | GPIO_CFG_OUT_HIGH);
-			Task_sleep(150000 / Clock_tickPeriod);
 			ADS_init(CONFIG_SPI_EEG, _EEG_CS);
 //			uint8 adsId = ADS_getDeviceID(); // 0x90 != adsId -> throw error?
 			enableInterrupt = true;
 			if (actOnInterrupt) {
-				eegInterrupt(true);
+				eegInterrupt(enableInterrupt);
 			}
 		}
 		// assumes this function is not called unless channel config has changed
 		ADS_enableChannels(esloSettings[Set_EEG1], esloSettings[Set_EEG2],
 				esloSettings[Set_EEG3], esloSettings[Set_EEG4]);
 	}
-	if (USE_EEG(esloSettings)
-			== ESLO_MODULE_OFF& shdnState == GPIO_CFG_OUT_HIGH) {
-		eegInterrupt(true); // always turn off before shutting down
+	if (USE_EEG(esloSettings) == ESLO_MODULE_OFF & shdnState == ESLO_HIGH) {
+		enableInterrupt = false;
+		eegInterrupt(enableInterrupt); // always turn off before shutting down
 		GPIO_setConfig(_EEG_CS, GPIO_CFG_IN_NOPULL);
 		GPIO_setConfig(EEG_START, GPIO_CFG_IN_NOPULL);
-		GPIO_write(_SHDN, GPIO_CFG_OUT_LOW);
-		enableInterrupt = false;
+		ADS_close();
+		GPIO_write(_SHDN, ESLO_LOW);
 	}
 	return enableInterrupt;
 }
@@ -725,12 +756,12 @@ static uint8_t updateXlFromSettings(bool actOnInterrupt) {
 		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE); // enable
 		enableInterrupt = true;
 		if (actOnInterrupt) {
-			xlInterrupt(true);
+			xlInterrupt(enableInterrupt);
 		}
 	} else {
-		xlInterrupt(false); // always turn off before powering down
-		lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_POWER_DOWN);
 		enableInterrupt = false;
+		xlInterrupt(enableInterrupt); // always turn off before powering down
+		lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_POWER_DOWN);
 	}
 	return enableInterrupt;
 }
@@ -1284,6 +1315,9 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 			// Display the address of this connection
 //        Display_printf(dispHandle, SP_ROW_STATUS_1, 0, "Connected to %s",
 //                       Util_convertBdAddr2Str(pPkt->devAddr));
+			isPaired = true;
+			// recover old settings
+			mapEsloSettings(esloSettingsSleep);
 
 			// Start Periodic Clock.
 			Util_startClock(&clkPeriodic);
@@ -1318,6 +1352,13 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 		if (numActive == 0) {
 			// Stop periodic clock
 			Util_stopClock(&clkPeriodic);
+			isPaired = true;
+
+			// save settings if going to sleep, will recover them upon wake
+			if (esloSettings[Set_SleepWake] == ESLO_MODULE_OFF) {
+				memcpy(esloSettingsSleep, esloSettings, SIMPLEPROFILE_CHAR3_LEN);
+				esloSleep();
+			}
 		}
 
 		BLE_LOG_INT_STR(0, BLE_LOG_MODULE_APP, "APP : GAP msg: status=%d, opcode=%s\n", 0, "GAP_LINK_TERMINATED_EVENT");
