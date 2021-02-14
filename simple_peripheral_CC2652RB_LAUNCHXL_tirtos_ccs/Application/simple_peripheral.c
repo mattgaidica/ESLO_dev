@@ -8,46 +8,8 @@
  Group: WCS, BTS
  Target Device: cc13x2_26x2
 
- ******************************************************************************
- 
- Copyright (c) 2013-2021, Texas Instruments Incorporated
- All rights reserved.
+ ******************************************************************************/
 
- Redistribution and use in source and binary forms, with or without
- modification, are permitted provided that the following conditions
- are met:
-
- *  Redistributions of source code must retain the above copyright
- notice, this list of conditions and the following disclaimer.
-
- *  Redistributions in binary form must reproduce the above copyright
- notice, this list of conditions and the following disclaimer in the
- documentation and/or other materials provided with the distribution.
-
- *  Neither the name of Texas Instruments Incorporated nor the names of
- its contributors may be used to endorse or promote products derived
- from this software without specific prior written permission.
-
- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
- THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
- EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
- ******************************************************************************
- 
- 
- *****************************************************************************/
-
-/*********************************************************************
- * INCLUDES
- */
 #include <string.h>
 
 #include <ti/drivers/ADC.h>
@@ -105,7 +67,8 @@
  * CONSTANTS
  */
 // How often to perform periodic event (in ms)
-#define SP_PERIODIC_EVT_PERIOD               1000
+#define SP_PERIODIC_EVT_PERIOD               5000
+#define ES_PERIODIC_EVT_PERIOD				 60000
 
 // Task configuration
 #define SP_TASK_PRIORITY                     1
@@ -127,6 +90,7 @@
 #define SP_CONN_EVT                          9
 #define ES_EEG_NOTIF						 10
 #define ES_XL_NOTIF							 11
+#define ES_PERIODIC_EVT						 12
 
 // Internal Events for RTOS application
 #define SP_ICALL_EVT                         ICALL_MSG_EVENT_ID // Event_Id_31
@@ -265,7 +229,7 @@ static Queue_Handle appMsgQueueHandle;
 
 // Clock instance for internal periodic events. Only one is needed since
 // GattServApp will handle notifying all connected GATT clients
-static Clock_Struct clkPeriodic;
+static Clock_Struct clkNotifyVitals;
 // Clock instance for RPA read events.
 static Clock_Struct clkRpaRead;
 
@@ -315,7 +279,7 @@ static void SimplePeripheral_advCallback(uint32_t event, void *pBuf,
 static void SimplePeripheral_processAdvEvent(spGapAdvEventData_t *pEventData);
 static void SimplePeripheral_processAppMsg(spEvt_t *pMsg);
 static void SimplePeripheral_processCharValueChangeEvt(uint8_t paramId);
-static void SimplePeripheral_performPeriodicTask(void);
+static void SimplePeripheral_notifyVitals(void);
 static void SimplePeripheral_updateRPA(void);
 static void SimplePeripheral_clockHandler(UArg arg);
 static void SimplePeripheral_passcodeCb(uint8_t *pDeviceAddr,
@@ -375,6 +339,10 @@ static uint8_t USE_EEG(uint8_t *esloSettings);
 static uint8_t USE_AXY(uint8_t *esloSettings);
 
 static void mapEsloSettings(uint8_t *esloSettingsNew);
+static void ESLO_performPeriodicTask();
+
+static Clock_Struct clkESLOPeriodic;
+spClockEventData_t argESLOPeriodic = { .event = ES_PERIODIC_EVT };
 
 uint8_t esloSettings[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
 uint8_t esloSettingsSleep[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
@@ -387,7 +355,7 @@ int_fast16_t adcRes;
 uint16_t adcValue0;
 uint32_t adcValue0MicroVolt;
 
-uint32_t secondCount = 0;
+uint32_t absoluteTime = 0;
 uint32_t esloVersion = 0x00000000;
 uint32_t axyCount;
 uint32_t eegCount;
@@ -412,7 +380,6 @@ stmdev_ctx_t dev_ctx_xl;
 stmdev_ctx_t dev_ctx_mg;
 static axis3bit16_t data_raw_acceleration;
 static uint8_t whoamI;
-uint32_t XL_TIMEOUT = 500000;
 
 /* NAND Vars */
 uint8_t ret;
@@ -429,6 +396,15 @@ int32_t ch2;
 int32_t ch3;
 int32_t ch4;
 
+// adcValue0MicroVolt will never exceed 24-bits
+static void readBatt() {
+	adcRes = ADC_convert(adc, &adcValue0);
+	if (adcRes == ADC_STATUS_SUCCESS) {
+		// read, multiply by 2 for voltage divider
+		adcValue0MicroVolt = ADC_convertToMicroVolts(adc, adcValue0) * 2;
+	}
+}
+
 static void esloSleep() {
 	// right now zeros and sleep mode are same
 	uint8_t esloSettingsNew[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
@@ -439,24 +415,21 @@ static void esloSleep() {
 }
 
 static void mapEsloSettings(uint8_t *esloSettingsNew) {
+	// order: end with the things that have interrupts
+
+	// this needs some logic: we will never write asbtime=0 here
+	// but cond can occur when the settings are mapped from wakeup
+	if (esloSettingsNew[Set_Time1] | esloSettingsNew[Set_Time2]
+			| esloSettingsNew[Set_Time3] | esloSettingsNew[Set_Time4] > 0x00) {
+		memcpy(&absoluteTime, esloSettingsNew + Set_Time1, 4);
+		eslo.type = Type_AbsoluteTime;
+		eslo.data = absoluteTime; // data is version in this case
+		ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+		Util_restartClock(&clkESLOPeriodic, ES_PERIODIC_EVT_PERIOD);
+	}
+
 	if (esloSettings[Set_SleepWake] != *(esloSettingsNew + Set_SleepWake)) {
 		esloSettings[Set_SleepWake] = *(esloSettingsNew + Set_SleepWake);
-	}
-	if (esloSettings[Set_EEG1] != *(esloSettingsNew + Set_EEG1)
-			| esloSettings[Set_EEG2] != *(esloSettingsNew + Set_EEG2)
-			| esloSettings[Set_EEG3] != *(esloSettingsNew + Set_EEG3)
-			| esloSettings[Set_EEG4] != *(esloSettingsNew + Set_EEG4)) {
-		// set them first, EEG function uses them
-		esloSettings[Set_EEG1] = *(esloSettingsNew + Set_EEG1);
-		esloSettings[Set_EEG2] = *(esloSettingsNew + Set_EEG2);
-		esloSettings[Set_EEG3] = *(esloSettingsNew + Set_EEG3);
-		esloSettings[Set_EEG4] = *(esloSettingsNew + Set_EEG4);
-		updateEEGFromSettings(true);
-	}
-	if (esloSettings[Set_AxyMode] != *(esloSettingsNew + Set_AxyMode)) {
-		// set it first, Xl function uses them
-		esloSettings[Set_AxyMode] = *(esloSettingsNew + Set_AxyMode);
-		updateXlFromSettings(true);
 	}
 	if (esloSettings[Set_TxPower] != *(esloSettingsNew + Set_TxPower)) {
 		esloSettings[Set_TxPower] = *(esloSettingsNew + Set_TxPower);
@@ -477,10 +450,22 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 			break;
 		}
 	}
-
-	// write time?
-	uint32_t newTime = { 0 }; // 2021 time
-	memcpy(&newTime, esloSettingsNew + Set_Time1, 4); // prep for eslo packet
+	if (esloSettings[Set_AxyMode] != *(esloSettingsNew + Set_AxyMode)) {
+		// set it first, Xl function uses them
+		esloSettings[Set_AxyMode] = *(esloSettingsNew + Set_AxyMode);
+		updateXlFromSettings(true);
+	}
+	if (esloSettings[Set_EEG1] != *(esloSettingsNew + Set_EEG1)
+			| esloSettings[Set_EEG2] != *(esloSettingsNew + Set_EEG2)
+			| esloSettings[Set_EEG3] != *(esloSettingsNew + Set_EEG3)
+			| esloSettings[Set_EEG4] != *(esloSettingsNew + Set_EEG4)) {
+		// set them first, EEG function uses them
+		esloSettings[Set_EEG1] = *(esloSettingsNew + Set_EEG1);
+		esloSettings[Set_EEG2] = *(esloSettingsNew + Set_EEG2);
+		esloSettings[Set_EEG3] = *(esloSettingsNew + Set_EEG3);
+		esloSettings[Set_EEG4] = *(esloSettingsNew + Set_EEG4);
+		updateEEGFromSettings(true);
+	}
 }
 
 static uint8_t USE_EEG(uint8_t *esloSettings) {
@@ -502,39 +487,60 @@ static void eegDataHandler(void) {
 	if (USE_EEG(esloSettings) == ESLO_MODULE_ON) { // double check
 		ADS_updateData(&status, &ch1, &ch2, &ch3, &ch4);
 
-		eslo.type = Type_EEG1;
-		eslo.data = ch1;
-		ESLO_Packet(eslo, &packet);
-		eeg1Buffer[iEEG] = packet;
-		if (~isPaired) {
-			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+		// this is happening when AXY reads buffer
+		// need to check NAND-this might only happen when BLE is on
+		// in any case, I would rather drop the packets than write 0
+		// even though that causes a slight error in the ADS Fs
+		// I still don't know how it can return 0??? ADS says it can read
+		// the buffer even while DRDY is switching
+		// Note: it's not the BLE buffer being corrupted, it's the ADS read itself
+		if (status == 0x00000000) {
+			return;
 		}
 
-		eslo.type = Type_EEG2;
-		eslo.data = ch2;
-		ESLO_Packet(eslo, &packet);
-		eeg2Buffer[iEEG] = packet;
-		if (~isPaired) {
-			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+		if (esloSettings[Set_EEG1]) {
+			eslo.type = Type_EEG1;
+			eslo.data = ch1;
+			if (ch1 == 0) {
+				eslo.data = ch1;
+			}
+			ESLO_Packet(eslo, &packet);
+			eeg1Buffer[iEEG] = packet;
+			if (~isPaired) {
+				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+			}
 		}
 
-		eslo.type = Type_EEG3;
-		eslo.data = ch3;
-		ESLO_Packet(eslo, &packet);
-		eeg3Buffer[iEEG] = packet;
-		if (~isPaired) {
-			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+		if (esloSettings[Set_EEG2]) {
+			eslo.type = Type_EEG2;
+			eslo.data = ch2;
+			ESLO_Packet(eslo, &packet);
+			eeg2Buffer[iEEG] = packet;
+			if (~isPaired) {
+				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+			}
 		}
 
-		eslo.type = Type_EEG4;
-		eslo.data = ch4;
-		ESLO_Packet(eslo, &packet);
-		eeg4Buffer[iEEG] = packet;
-		if (~isPaired) {
-			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+		if (esloSettings[Set_EEG3]) {
+			eslo.type = Type_EEG3;
+			eslo.data = ch3;
+			ESLO_Packet(eslo, &packet);
+			eeg3Buffer[iEEG] = packet;
+			if (~isPaired) {
+				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+			}
 		}
 
-		iEEG++;
+		if (esloSettings[Set_EEG4]) {
+			eslo.type = Type_EEG4;
+			eslo.data = ch4;
+			ESLO_Packet(eslo, &packet);
+			eeg4Buffer[iEEG] = packet;
+			if (~isPaired) {
+				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+			}
+		}
+		iEEG++; // increment here
 
 		if (iEEG == PACKET_SZ_EEG & isPaired) {
 			if (esloSettings[Set_EEG1]) {
@@ -600,7 +606,6 @@ static void xlDataHandler(void) {
 			// !!handle ret
 		}
 
-//		if ()
 		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
 		SIMPLEPROFILE_CHAR5_LEN, xlXBuffer);
 		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
@@ -636,11 +641,11 @@ static void ESLO_startup(void) {
 	NAND_Init(CONFIG_SPI, _NAND_CS);
 	ret = FlashReadDeviceIdentification(&devId);
 
-//	ESLO_SetVersion(&esloVersion, CONFIG_TRNG_0);
-//	eslo.type = Type_Version;
-//	eslo.version = esloVersion; // set version once
-//	eslo.data = esloVersion; // data is version in this case
-//	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+	ESLO_SetVersion(&esloVersion, CONFIG_TRNG_1);
+	eslo.type = Type_Version;
+	eslo.version = esloVersion; // set version once
+	eslo.data = esloVersion; // data is version in this case
+	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 
 	/* ADS129X - Defaults in SysConfig */
 	bool enableEEGInterrupt = updateEEGFromSettings(false); // do not turn on yet
@@ -686,6 +691,7 @@ static void ESLO_startup(void) {
 
 	updateXlFromSettings(true); // turn on interrupt here
 	eegInterrupt(enableEEGInterrupt); // turn on now
+	Util_startClock(&clkESLOPeriodic);
 }
 
 static void eegInterrupt(bool enableInterrupt) {
@@ -827,8 +833,11 @@ static void SimplePeripheral_init(void) {
 	appMsgQueueHandle = Util_constructQueue(&appMsgQueue);
 
 // Create one-shot clock for internal periodic events.
-	Util_constructClock(&clkPeriodic, SimplePeripheral_clockHandler,
+	Util_constructClock(&clkNotifyVitals, SimplePeripheral_clockHandler,
 	SP_PERIODIC_EVT_PERIOD, 0, false, (UArg) &argPeriodic);
+
+	Util_constructClock(&clkESLOPeriodic, SimplePeripheral_clockHandler,
+	ES_PERIODIC_EVT_PERIOD, 0, false, (UArg) &argESLOPeriodic);
 
 // Set the Device Name characteristic in the GAP GATT Service
 // For more information, see the section in the User's Guide:
@@ -1151,13 +1160,14 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 		SimplePeripheral_processPasscode((spPasscodeData_t*) (pMsg->pData));
 		break;
 	case SP_PERIODIC_EVT:
-		SimplePeripheral_performPeriodicTask();
+		SimplePeripheral_notifyVitals();
 		break;
-
+	case ES_PERIODIC_EVT:
+		ESLO_performPeriodicTask();
+		break;
 	case SP_READ_RPA_EVT:
 		SimplePeripheral_updateRPA();
 		break;
-
 	case SP_SEND_PARAM_UPDATE_EVT: {
 		// Extract connection handle from data
 		uint16_t connHandle =
@@ -1169,7 +1179,6 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 		dealloc = FALSE;
 		break;
 	}
-
 	case SP_CONN_EVT:
 		SimplePeripheral_processConnEvt((Gap_ConnEventRpt_t*) (pMsg->pData));
 		break;
@@ -1320,7 +1329,7 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 			mapEsloSettings(esloSettingsSleep);
 
 			// Start Periodic Clock.
-			Util_startClock(&clkPeriodic);
+			Util_startClock(&clkNotifyVitals);
 		}
 		if ((numActive < MAX_NUM_BLE_CONNS)
 				&& (autoConnect == AUTOCONNECT_DISABLE)) {
@@ -1351,12 +1360,13 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 		// If no active connections
 		if (numActive == 0) {
 			// Stop periodic clock
-			Util_stopClock(&clkPeriodic);
+			Util_stopClock(&clkNotifyVitals);
 			isPaired = true;
 
-			// save settings if going to sleep, will recover them upon wake
+			// always save, if device is not sleeping they will have no effect when reloaded
+			memcpy(esloSettingsSleep, esloSettings,
+			SIMPLEPROFILE_CHAR3_LEN);
 			if (esloSettings[Set_SleepWake] == ESLO_MODULE_OFF) {
-				memcpy(esloSettingsSleep, esloSettings, SIMPLEPROFILE_CHAR3_LEN);
 				esloSleep();
 			}
 		}
@@ -1520,7 +1530,7 @@ static void SimplePeripheral_processCharValueChangeEvt(uint8_t paramId) {
 }
 
 /*********************************************************************
- * @fn      SimplePeripheral_performPeriodicTask
+ * @fn      SimplePeripheral_notifyVitals
  *
  * @brief   Perform a periodic application task. This function gets called
  *          every five seconds (SP_PERIODIC_EVT_PERIOD). In this example,
@@ -1532,14 +1542,22 @@ static void SimplePeripheral_processCharValueChangeEvt(uint8_t paramId) {
  *
  * @return  None.
  */
-static void SimplePeripheral_performPeriodicTask(void) {
-	adcRes = ADC_convert(adc, &adcValue0);
-	if (adcRes == ADC_STATUS_SUCCESS) {
-		// read, multiply by 2 for voltage divider
-		adcValue0MicroVolt = ADC_convertRawToMicroVolts(adc, adcValue0) * 2;
-	}
+static void SimplePeripheral_notifyVitals(void) {
+	readBatt();
 	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR2, SIMPLEPROFILE_CHAR2_LEN,
 			&adcValue0MicroVolt);
+}
+
+static void ESLO_performPeriodicTask() {
+	readBatt();
+	eslo.type = Type_BatteryVoltage;
+	eslo.data = adcValue0MicroVolt;
+	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+
+	absoluteTime += (ES_PERIODIC_EVT_PERIOD / 1000);
+	eslo.type = Type_AbsoluteTime;
+	eslo.data = absoluteTime;
+	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 }
 
 /*********************************************************************
@@ -1577,14 +1595,17 @@ static void SimplePeripheral_clockHandler(UArg arg) {
 
 	if (pData->event == SP_PERIODIC_EVT) {
 		// Start the next period
-		Util_startClock(&clkPeriodic);
-
+		Util_startClock(&clkNotifyVitals);
 		// Post event to wake up the application
 		SimplePeripheral_enqueueMsg(SP_PERIODIC_EVT, NULL);
+	} else if (pData->event == ES_PERIODIC_EVT) {
+		// Start the next period
+		Util_startClock(&clkESLOPeriodic);
+		// Post event to wake up the application
+		SimplePeripheral_enqueueMsg(ES_PERIODIC_EVT, NULL);
 	} else if (pData->event == SP_READ_RPA_EVT) {
 		// Start the next period
 		Util_startClock(&clkRpaRead);
-
 		// Post event to read the current RPA
 		SimplePeripheral_enqueueMsg(SP_READ_RPA_EVT, NULL);
 	} else if (pData->event == SP_SEND_PARAM_UPDATE_EVT) {
