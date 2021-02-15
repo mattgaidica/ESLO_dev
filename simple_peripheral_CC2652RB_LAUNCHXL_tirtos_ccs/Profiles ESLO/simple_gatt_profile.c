@@ -130,6 +130,7 @@ static CONST gattAttrType_t simpleProfileService = { ATT_BT_UUID_SIZE,
 		simpleProfileServUUID };
 
 // LED_0 RW (N?)
+// still use an array, avoids confusion with pointers later on
 static uint8 simpleProfileChar1Props = GATT_PROP_READ | GATT_PROP_WRITE;
 static uint8 simpleProfileChar1[SIMPLEPROFILE_CHAR1_LEN] = { 0 };
 //static gattCharCfg_t *simpleProfileChar1Config; // notify only

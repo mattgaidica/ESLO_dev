@@ -412,6 +412,11 @@ static void esloSleep() {
 	esloSettingsNew[Set_TxPower] = esloSettings[Set_TxPower];
 	// overwrite esloSettings and force sleep mode to take effect
 	mapEsloSettings(esloSettingsNew);
+
+	// not sure of state right now, so just turn off LED
+	uint8_t setGPIO = 0x00;
+	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR1, sizeof(uint8_t), &setGPIO); // only sets parameter, does not cue LED change
+	GPIO_write(LED_0, setGPIO);
 }
 
 static void mapEsloSettings(uint8_t *esloSettingsNew) {
@@ -542,22 +547,29 @@ static void eegDataHandler(void) {
 		}
 		iEEG++; // increment here
 
-		if (iEEG == PACKET_SZ_EEG & isPaired) {
-			if (esloSettings[Set_EEG1]) {
-				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
-				SIMPLEPROFILE_CHAR4_LEN, eeg1Buffer);
-			}
-			if (esloSettings[Set_EEG2]) {
-				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
-				SIMPLEPROFILE_CHAR4_LEN, eeg2Buffer);
-			}
-			if (esloSettings[Set_EEG3]) {
-				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
-				SIMPLEPROFILE_CHAR4_LEN, eeg3Buffer);
-			}
-			if (esloSettings[Set_EEG4]) {
-				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
-				SIMPLEPROFILE_CHAR4_LEN, eeg4Buffer);
+		if (iEEG == PACKET_SZ_EEG) {
+			if (isPaired) {
+				if (esloSettings[Set_EEG1]) {
+					SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
+					SIMPLEPROFILE_CHAR4_LEN, eeg1Buffer);
+				}
+				if (esloSettings[Set_EEG2]) {
+					SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
+					SIMPLEPROFILE_CHAR4_LEN, eeg2Buffer);
+				}
+				if (esloSettings[Set_EEG3]) {
+					SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
+					SIMPLEPROFILE_CHAR4_LEN, eeg3Buffer);
+				}
+				if (esloSettings[Set_EEG4]) {
+					SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
+					SIMPLEPROFILE_CHAR4_LEN, eeg4Buffer);
+				}
+			} else {
+				uint8_t setGPIO = !GPIO_read(LED_0);
+				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR1, sizeof(uint8_t),
+						&setGPIO); // only sets parameter, does not cue LED change
+				GPIO_write(LED_0, setGPIO);
 			}
 			iEEG = 0;
 		}
@@ -1325,6 +1337,11 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 //        Display_printf(dispHandle, SP_ROW_STATUS_1, 0, "Connected to %s",
 //                       Util_convertBdAddr2Str(pPkt->devAddr));
 			isPaired = true;
+			// !! temporary: turn off LED once connected
+			uint8_t setGPIO = 0x00;
+			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR1, sizeof(uint8_t),
+					&setGPIO); // only sets parameter, does not cue LED change
+			GPIO_write(LED_0, setGPIO);
 			// recover old settings
 			mapEsloSettings(esloSettingsSleep);
 
@@ -1361,7 +1378,7 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 		if (numActive == 0) {
 			// Stop periodic clock
 			Util_stopClock(&clkNotifyVitals);
-			isPaired = true;
+			isPaired = false;
 
 			// always save, if device is not sleeping they will have no effect when reloaded
 			memcpy(esloSettingsSleep, esloSettings,
@@ -1549,15 +1566,29 @@ static void SimplePeripheral_notifyVitals(void) {
 }
 
 static void ESLO_performPeriodicTask() {
+	absoluteTime += (ES_PERIODIC_EVT_PERIOD / 1000);
+	eslo.type = Type_AbsoluteTime;
+	eslo.data = absoluteTime;
+	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+
 	readBatt();
 	eslo.type = Type_BatteryVoltage;
 	eslo.data = adcValue0MicroVolt;
 	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 
-	absoluteTime += (ES_PERIODIC_EVT_PERIOD / 1000);
-	eslo.type = Type_AbsoluteTime;
-	eslo.data = absoluteTime;
-	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+	// test multiple times?
+	if (adcValue0MicroVolt < V_DROPOUT) {
+		esloSleep(); // good night
+		// write stream until end of page
+		while (ADDRESS_2_COL(esloAddr) != 0) {
+			readBatt();
+			eslo.type = Type_BatteryVoltage;
+			eslo.data = adcValue0MicroVolt;
+			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+		}
+		esloAddr = FLASH_SIZE; // never write again
+		Util_stopClock(&clkESLOPeriodic); // never come back
+	}
 }
 
 /*********************************************************************
