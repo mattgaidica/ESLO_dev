@@ -329,6 +329,8 @@ static simpleProfileCBs_t SimplePeripheral_simpleProfileCBs = {
  * PUBLIC FUNCTIONS
  */
 
+#define EEG_NOTIF_MOD 4 // decimate
+
 static uint8_t updateEEGFromSettings(bool actOnInterrupt);
 static void eegInterrupt(bool enableInterrupt);
 
@@ -357,9 +359,9 @@ uint32_t adcValue0MicroVolt;
 
 uint32_t absoluteTime = 0;
 uint32_t esloVersion = 0x00000000;
-uint32_t axyCount;
-uint32_t eegCount;
-uint32_t magCount;
+uint32_t axyCount = 0;
+uint32_t eegCount = 0;
+uint32_t magCount = 0;
 eslo_dt eslo = { .mode = Mode_Debug };
 ReturnType ret; // NAND
 
@@ -510,9 +512,10 @@ static void eegDataHandler(void) {
 				eslo.data = ch1;
 			}
 			ESLO_Packet(eslo, &packet);
-			eeg1Buffer[iEEG] = packet;
 			if (~isPaired) {
 				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+			} else if (eegCount + 1 % EEG_NOTIF_MOD == 0) {
+				eeg1Buffer[iEEG] = packet;
 			}
 		}
 
@@ -520,9 +523,10 @@ static void eegDataHandler(void) {
 			eslo.type = Type_EEG2;
 			eslo.data = ch2;
 			ESLO_Packet(eslo, &packet);
-			eeg2Buffer[iEEG] = packet;
 			if (~isPaired) {
 				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+			} else if (eegCount + 1 % EEG_NOTIF_MOD == 0) {
+				eeg2Buffer[iEEG] = packet;
 			}
 		}
 
@@ -530,9 +534,10 @@ static void eegDataHandler(void) {
 			eslo.type = Type_EEG3;
 			eslo.data = ch3;
 			ESLO_Packet(eslo, &packet);
-			eeg3Buffer[iEEG] = packet;
 			if (~isPaired) {
 				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+			} else if (eegCount + 1 % EEG_NOTIF_MOD == 0) {
+				eeg3Buffer[iEEG] = packet;
 			}
 		}
 
@@ -540,12 +545,17 @@ static void eegDataHandler(void) {
 			eslo.type = Type_EEG4;
 			eslo.data = ch4;
 			ESLO_Packet(eslo, &packet);
-			eeg4Buffer[iEEG] = packet;
 			if (~isPaired) {
 				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+			} else if (eegCount + 1 % EEG_NOTIF_MOD == 0) {
+				eeg4Buffer[iEEG] = packet;
 			}
 		}
-		iEEG++; // increment here
+
+		if (eegCount + 1 % EEG_NOTIF_MOD == 0) {
+			iEEG++;
+		}
+		eegCount++;
 
 		if (iEEG == PACKET_SZ_EEG) {
 			if (isPaired) {
@@ -572,8 +582,8 @@ static void eegDataHandler(void) {
 				GPIO_write(LED_0, setGPIO);
 			}
 			iEEG = 0;
+			eegCount = 0;
 		}
-		eegCount++;
 	}
 }
 

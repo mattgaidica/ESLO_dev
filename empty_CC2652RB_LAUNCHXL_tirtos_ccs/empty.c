@@ -42,7 +42,6 @@
 /* Driver Header files */
 #include <ti/drivers/GPIO.h>
 #include <ti/sysbios/knl/Task.h>
-#include <ti/drivers/Timer.h>
 // #include <ti/drivers/I2C.h>
 // #include <ti/drivers/SPI.h>
 // #include <ti/drivers/UART.h>
@@ -82,7 +81,7 @@ void *mainThread(void *arg0)
     GPIO_write(LED_0, CONFIG_GPIO_LED_ON);
 
     while (1) {
-        Task_sleep(300000);
+        Task_sleep(500000);
         GPIO_toggle(LED_0);
     }
 }
