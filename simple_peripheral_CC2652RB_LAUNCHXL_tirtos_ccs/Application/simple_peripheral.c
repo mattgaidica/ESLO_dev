@@ -91,6 +91,7 @@
 #define ES_EEG_NOTIF						 10
 #define ES_XL_NOTIF							 11
 #define ES_PERIODIC_EVT						 12
+#define ES_EXPORT_DATA						 13
 
 // Internal Events for RTOS application
 #define SP_ICALL_EVT                         ICALL_MSG_EVENT_ID // Event_Id_31
@@ -329,8 +330,6 @@ static simpleProfileCBs_t SimplePeripheral_simpleProfileCBs = {
  * PUBLIC FUNCTIONS
  */
 
-#define EEG_NOTIF_MOD 4 // decimate
-
 static uint8_t updateEEGFromSettings(bool actOnInterrupt);
 static void eegInterrupt(bool enableInterrupt);
 
@@ -342,6 +341,10 @@ static uint8_t USE_AXY(uint8_t *esloSettings);
 
 static void mapEsloSettings(uint8_t *esloSettingsNew);
 static void ESLO_performPeriodicTask();
+
+static void esloFillNAND();
+static void exportDataBLE();
+static void readBatt();
 
 static Clock_Struct clkESLOPeriodic;
 spClockEventData_t argESLOPeriodic = { .event = ES_PERIODIC_EVT };
@@ -365,14 +368,14 @@ uint32_t magCount = 0;
 eslo_dt eslo = { .mode = Mode_Debug };
 ReturnType ret; // NAND
 
-#define PACKET_SZ_EEG 50
+#define PACKET_SZ_EEG SIMPLEPROFILE_CHAR4_LEN / 4
 int32_t eeg1Buffer[PACKET_SZ_EEG];
 int32_t eeg2Buffer[PACKET_SZ_EEG];
 int32_t eeg3Buffer[PACKET_SZ_EEG];
 int32_t eeg4Buffer[PACKET_SZ_EEG];
 uint8_t iEEG = 0;
 
-#define PACKET_SZ_XL 32
+#define PACKET_SZ_XL SIMPLEPROFILE_CHAR5_LEN / 4
 int32_t xlXBuffer[PACKET_SZ_XL];
 int32_t xlYBuffer[PACKET_SZ_XL];
 int32_t xlZBuffer[PACKET_SZ_XL];
@@ -387,7 +390,7 @@ static uint8_t whoamI;
 uint8_t ret;
 uint16_t devId;
 uint8_t esloBuffer[PAGE_DATA_SIZE];
-//uint8_t readBuf[PAGE_SIZE]; // 2176, always allocate full page size
+uint8_t readBuf[PAGE_SIZE]; // 2176, always allocate full page size
 uint32_t esloPacket;
 uAddrType esloAddr;
 
@@ -398,6 +401,64 @@ int32_t ch2;
 int32_t ch3;
 int32_t ch4;
 
+static void esloFillNAND() {
+	// !! readBatt does increase power here
+	// consider writing 0xFFFFFFFF to identify in decoder as end
+	while (ADDRESS_2_COL(esloAddr) != 0) {
+		readBatt();
+		eslo.type = Type_BatteryVoltage;
+		eslo.data = adcValue0MicroVolt;
+		ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+	}
+}
+
+static void exportDataBLE() {
+	uint32_t iBlock = 0;
+	uint8_t iPage, iBLE;
+	uint32_t esloCurVersion = 0x00000000;
+	uint8_t doLoop = 1;
+
+	uint32_t j, k = 0;
+
+	esloFillNAND(); // force finish page
+
+	esloAddr = 0; // from start
+	// could find last block first, then for loop
+	while (doLoop == 1) {
+		iPage = ADDRESS_2_PAGE(esloAddr);
+		iBlock = ADDRESS_2_BLOCK(esloAddr);
+		ret = FlashPageRead(esloAddr, readBuf); // read whole page
+
+		if (iPage == 0) { // where version should be
+			memcpy(&esloCurVersion, readBuf, 0x03); // do not include ESLO header
+			if (readBuf[3] == 0x0F && esloVersion != esloCurVersion) {
+				break;
+			}
+		}
+		if (readBuf[3] == 0xFF) { // indicates wiped page
+			break;
+		}
+//		for (j = 0; j < PAGE_DATA_SIZE / 4; j++) {
+//			memcpy(readBuf + (4 * j), &k, 0x04); // copy 4 bytes from j
+//			k++;
+//		}
+		// loop 16 times at 128 bytes each = 2048 total
+		for (iBLE = 0; iBLE < PAGE_DATA_SIZE / SIMPLEPROFILE_CHAR5_LEN;
+				iBLE++) {
+			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+			SIMPLEPROFILE_CHAR5_LEN,
+					readBuf + (iBLE * SIMPLEPROFILE_CHAR5_LEN));
+			Task_sleep(7500); // throttle at 10uS increments
+		}
+
+		esloAddr += 0x00001000; // +1 page
+	}
+	// !!leave esloAddr at last page to append data? or reset?
+	esloSettings[Set_ExportData] = 0x00; // done
+	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
+			esloSettings);
+}
+
 // adcValue0MicroVolt will never exceed 24-bits
 static void readBatt() {
 	adcRes = ADC_convert(adc, &adcValue0);
@@ -407,6 +468,8 @@ static void readBatt() {
 	}
 }
 
+// sleep should only be called internally
+// ...mapEsloSettings() is called when central pushes
 static void esloSleep() {
 	// right now zeros and sleep mode are same
 	uint8_t esloSettingsNew[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
@@ -423,8 +486,18 @@ static void esloSleep() {
 
 static void mapEsloSettings(uint8_t *esloSettingsNew) {
 	// order: end with the things that have interrupts
+	if (esloSettingsNew[Set_ExportData] > 0x00) {
+		// force turn off AXY and EEG
+		esloSettingsNew[Set_SleepWake] = 0x00;
+		esloSettingsNew[Set_EEG1] = 0x00;
+		esloSettingsNew[Set_EEG2] = 0x00;
+		esloSettingsNew[Set_EEG3] = 0x00;
+		esloSettingsNew[Set_EEG4] = 0x00;
+		esloSettingsNew[Set_AxyMode] = 0x00;
+	}
+	esloSettings[Set_ExportData] = esloSettingsNew[Set_ExportData];
 
-	// this needs some logic: we will never write asbtime=0 here
+	// this needs some logic: we will never write abstime=0 here
 	// but cond can occur when the settings are mapped from wakeup
 	if (esloSettingsNew[Set_Time1] | esloSettingsNew[Set_Time2]
 			| esloSettingsNew[Set_Time3] | esloSettingsNew[Set_Time4] > 0x00) {
@@ -473,6 +546,14 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 		esloSettings[Set_EEG4] = *(esloSettingsNew + Set_EEG4);
 		updateEEGFromSettings(true);
 	}
+
+	// set and notify iOS, since export data now overrides some settings
+	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
+			esloSettings);
+
+	if (esloSettingsNew[Set_ExportData] > 0x00) {
+		SimplePeripheral_enqueueMsg(ES_EXPORT_DATA, NULL);
+	}
 }
 
 static uint8_t USE_EEG(uint8_t *esloSettings) {
@@ -494,13 +575,7 @@ static void eegDataHandler(void) {
 	if (USE_EEG(esloSettings) == ESLO_MODULE_ON) { // double check
 		ADS_updateData(&status, &ch1, &ch2, &ch3, &ch4);
 
-		// this is happening when AXY reads buffer
-		// need to check NAND-this might only happen when BLE is on
-		// in any case, I would rather drop the packets than write 0
-		// even though that causes a slight error in the ADS Fs
-		// I still don't know how it can return 0??? ADS says it can read
-		// the buffer even while DRDY is switching
-		// Note: it's not the BLE buffer being corrupted, it's the ADS read itself
+		// catch potential issues
 		if (status == 0x00000000) {
 			return;
 		}
@@ -508,13 +583,10 @@ static void eegDataHandler(void) {
 		if (esloSettings[Set_EEG1]) {
 			eslo.type = Type_EEG1;
 			eslo.data = ch1;
-			if (ch1 == 0) {
-				eslo.data = ch1;
-			}
 			ESLO_Packet(eslo, &packet);
-			if (~isPaired) {
+			if (!isPaired) {
 				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
-			} else if (eegCount + 1 % EEG_NOTIF_MOD == 0) {
+			} else {
 				eeg1Buffer[iEEG] = packet;
 			}
 		}
@@ -523,9 +595,9 @@ static void eegDataHandler(void) {
 			eslo.type = Type_EEG2;
 			eslo.data = ch2;
 			ESLO_Packet(eslo, &packet);
-			if (~isPaired) {
+			if (!isPaired) {
 				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
-			} else if (eegCount + 1 % EEG_NOTIF_MOD == 0) {
+			} else {
 				eeg2Buffer[iEEG] = packet;
 			}
 		}
@@ -534,9 +606,9 @@ static void eegDataHandler(void) {
 			eslo.type = Type_EEG3;
 			eslo.data = ch3;
 			ESLO_Packet(eslo, &packet);
-			if (~isPaired) {
+			if (!isPaired) {
 				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
-			} else if (eegCount + 1 % EEG_NOTIF_MOD == 0) {
+			} else {
 				eeg3Buffer[iEEG] = packet;
 			}
 		}
@@ -545,17 +617,14 @@ static void eegDataHandler(void) {
 			eslo.type = Type_EEG4;
 			eslo.data = ch4;
 			ESLO_Packet(eslo, &packet);
-			if (~isPaired) {
+			if (!isPaired) {
 				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
-			} else if (eegCount + 1 % EEG_NOTIF_MOD == 0) {
+			} else {
 				eeg4Buffer[iEEG] = packet;
 			}
 		}
 
-		if (eegCount + 1 % EEG_NOTIF_MOD == 0) {
-			iEEG++;
-		}
-		eegCount++;
+		iEEG++;
 
 		if (iEEG == PACKET_SZ_EEG) {
 			if (isPaired) {
@@ -582,8 +651,8 @@ static void eegDataHandler(void) {
 				GPIO_write(LED_0, setGPIO);
 			}
 			iEEG = 0;
-			eegCount = 0;
 		}
+		eegCount++;
 	}
 }
 
@@ -624,7 +693,6 @@ static void xlDataHandler(void) {
 			}
 
 			axyCount++;
-
 			// !!handle ret
 		}
 
@@ -637,6 +705,7 @@ static void xlDataHandler(void) {
 
 		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
 		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
+		eegInterrupt(true); // turn back on
 	}
 }
 
@@ -645,7 +714,12 @@ void eegDataReady(uint_least8_t index) {
 }
 
 void axyXlReady(uint_least8_t index) {
+	GPIO_PinConfig rememberCfg;
+	GPIO_getConfig(_EEG_DRDY, &rememberCfg);
+	// !! turn off, allow axy to block when reading? use i2c callback?
+	eegInterrupt(false);
 	SimplePeripheral_enqueueMsg(ES_XL_NOTIF, NULL);
+	GPIO_setConfig(_EEG_DRDY, rememberCfg);
 }
 
 void axyMagReady(uint_least8_t index) {
@@ -1210,6 +1284,9 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 	case ES_XL_NOTIF:
 		xlDataHandler();
 		break;
+	case ES_EXPORT_DATA:
+		exportDataBLE();
+		break;
 	default:
 		// Do nothing.
 		break;
@@ -1586,16 +1663,11 @@ static void ESLO_performPeriodicTask() {
 	eslo.data = adcValue0MicroVolt;
 	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 
-	// test multiple times?
+	// test multiple times in case of outlier?
 	if (adcValue0MicroVolt < V_DROPOUT) {
 		esloSleep(); // good night
 		// write stream until end of page
-		while (ADDRESS_2_COL(esloAddr) != 0) {
-			readBatt();
-			eslo.type = Type_BatteryVoltage;
-			eslo.data = adcValue0MicroVolt;
-			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
-		}
+		esloFillNAND();
 		esloAddr = FLASH_SIZE; // never write again
 		Util_stopClock(&clkESLOPeriodic); // never come back
 	}
