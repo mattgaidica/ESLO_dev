@@ -16,6 +16,7 @@
 #include <ti/drivers/GPIO.h>
 #include <ti/drivers/SPI.h>
 #include <ti/drivers/I2C.h>
+#include <ti/drivers/NVS.h>
 
 #include <ti/sysbios/knl/Task.h>
 #include <ti/sysbios/knl/Clock.h>
@@ -327,7 +328,7 @@ static simpleProfileCBs_t SimplePeripheral_simpleProfileCBs = {
 		};
 
 /*********************************************************************
- * PUBLIC FUNCTIONS
+ * ESLO FUNCTIONS
  */
 
 static uint8_t updateEEGFromSettings(bool actOnInterrupt);
@@ -342,9 +343,19 @@ static uint8_t USE_AXY(uint8_t *esloSettings);
 static void mapEsloSettings(uint8_t *esloSettingsNew);
 static void ESLO_performPeriodicTask();
 
+static void esloSetVersion();
 static void esloFillNAND();
 static void exportDataBLE();
 static void readBatt();
+static void esloRecoverSession();
+static void esloUpdateNVS();
+static void esloResetVersion();
+
+NVS_Handle nvsHandle;
+NVS_Attrs regionAttrs;
+NVS_Params nvsParams;
+static uint32_t nvsBuffer[3]; // esloSignature, esloVersion, esloAddr
+uint32_t ESLOSignature = 0xE123E123;
 
 static Clock_Struct clkESLOPeriodic;
 spClockEventData_t argESLOPeriodic = { .event = ES_PERIODIC_EVT };
@@ -401,6 +412,62 @@ int32_t ch2;
 int32_t ch3;
 int32_t ch4;
 
+static void esloResetVersion() {
+	esloAddr = 0; // comes first, so NAND first entry is version
+	esloSetVersion();
+	ESLO_encodeNVS(nvsBuffer, &ESLOSignature, &esloVersion, &esloAddr);
+	NVS_write(nvsHandle, 0, (void*) nvsBuffer, sizeof(nvsBuffer),
+	NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
+}
+
+static void esloUpdateNVS() {
+	nvsHandle = NVS_open(ESLO_NVS_0, &nvsParams);
+	if (nvsHandle != NULL) {
+		ESLO_encodeNVS(nvsBuffer, &ESLOSignature, &esloVersion, &esloAddr);
+		NVS_write(nvsHandle, 0, (void*) nvsBuffer, sizeof(nvsBuffer),
+		NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
+	}
+	NVS_close(nvsHandle);
+}
+
+// set esloAddr and esloVersion
+static void esloRecoverSession() {
+	uint32_t tempSignature;
+	uint32_t tempVersion;
+	uint32_t tempAddress;
+	bool doVersion = false;
+
+	nvsHandle = NVS_open(ESLO_NVS_0, &nvsParams);
+	if (nvsHandle != NULL) {
+		NVS_getAttrs(nvsHandle, &regionAttrs);
+		NVS_read(nvsHandle, 0, (void*) nvsBuffer, sizeof(nvsBuffer));
+		// compare eslo sig
+		ESLO_decodeNVS(nvsBuffer, &tempSignature, &tempVersion, &tempAddress);
+		if (tempSignature == ESLOSignature) {
+			esloVersion = tempVersion;
+			esloAddr = tempAddress;
+		} else {
+			doVersion = true;
+		}
+	} else {
+		doVersion = true;
+	}
+
+	if (doVersion) {
+		esloResetVersion();
+	}
+
+	NVS_close(nvsHandle);
+}
+
+static void esloSetVersion() {
+	ESLO_GenerateVersion(&esloVersion, CONFIG_TRNG_1);
+	eslo.type = Type_Version;
+	eslo.version = esloVersion; // set version once
+	eslo.data = esloVersion; // data is version in this case
+	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+}
+
 static void esloFillNAND() {
 	// !! readBatt does increase power here
 	// consider writing 0xFFFFFFFF to identify in decoder as end
@@ -413,12 +480,10 @@ static void esloFillNAND() {
 }
 
 static void exportDataBLE() {
-	uint32_t iBlock = 0;
+	// uint32_t iBlock = 0; // debug only
 	uint8_t iPage, iBLE;
 	uint32_t esloCurVersion = 0x00000000;
 	uint8_t doLoop = 1;
-
-	uint32_t j, k = 0;
 
 	esloFillNAND(); // force finish page
 
@@ -426,7 +491,7 @@ static void exportDataBLE() {
 	// could find last block first, then for loop
 	while (doLoop == 1) {
 		iPage = ADDRESS_2_PAGE(esloAddr);
-		iBlock = ADDRESS_2_BLOCK(esloAddr);
+		// iBlock = ADDRESS_2_BLOCK(esloAddr); // debug only
 		ret = FlashPageRead(esloAddr, readBuf); // read whole page
 
 		if (iPage == 0) { // where version should be
@@ -438,10 +503,7 @@ static void exportDataBLE() {
 		if (readBuf[3] == 0xFF) { // indicates wiped page
 			break;
 		}
-//		for (j = 0; j < PAGE_DATA_SIZE / 4; j++) {
-//			memcpy(readBuf + (4 * j), &k, 0x04); // copy 4 bytes from j
-//			k++;
-//		}
+
 		// loop 16 times at 128 bytes each = 2048 total
 		for (iBLE = 0; iBLE < PAGE_DATA_SIZE / SIMPLEPROFILE_CHAR5_LEN;
 				iBLE++) {
@@ -496,6 +558,11 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 		esloSettingsNew[Set_AxyMode] = 0x00;
 	}
 	esloSettings[Set_ExportData] = esloSettingsNew[Set_ExportData];
+
+	// resetVersion only comes from iOS, never maintains value (one and done)
+	if (esloSettingsNew[Set_ResetVersion] > 0x00) {
+		esloResetVersion();
+	}
 
 	// this needs some logic: we will never write abstime=0 here
 	// but cond can occur when the settings are mapped from wakeup
@@ -672,7 +739,7 @@ static void xlDataHandler(void) {
 			eslo.data = (uint32_t) data_raw_acceleration.i16bit[0];
 			ESLO_Packet(eslo, &packet);
 			xlXBuffer[iFifo] = packet;
-			if (~isPaired) {
+			if (!isPaired) {
 				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 			}
 
@@ -680,7 +747,7 @@ static void xlDataHandler(void) {
 			eslo.data = (uint32_t) data_raw_acceleration.i16bit[1];
 			ESLO_Packet(eslo, &packet);
 			xlYBuffer[iFifo] = packet;
-			if (~isPaired) {
+			if (!isPaired) {
 				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 			}
 
@@ -688,7 +755,7 @@ static void xlDataHandler(void) {
 			eslo.data = (uint32_t) data_raw_acceleration.i16bit[2];
 			ESLO_Packet(eslo, &packet);
 			xlZBuffer[iFifo] = packet;
-			if (~isPaired) {
+			if (!isPaired) {
 				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 			}
 
@@ -696,12 +763,14 @@ static void xlDataHandler(void) {
 			// !!handle ret
 		}
 
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
-		SIMPLEPROFILE_CHAR5_LEN, xlXBuffer);
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
-		SIMPLEPROFILE_CHAR5_LEN, xlYBuffer);
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
-		SIMPLEPROFILE_CHAR5_LEN, xlZBuffer);
+		if (isPaired) {
+			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+			SIMPLEPROFILE_CHAR5_LEN, xlXBuffer);
+			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+			SIMPLEPROFILE_CHAR5_LEN, xlYBuffer);
+			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+			SIMPLEPROFILE_CHAR5_LEN, xlZBuffer);
+		}
 
 		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
 		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
@@ -726,6 +795,12 @@ void axyMagReady(uint_least8_t index) {
 }
 
 static void ESLO_startup(void) {
+	GPIO_init();
+	SPI_init();
+	I2C_init();
+	ADC_init();
+	NVS_init();
+
 	// init Settings
 	esloSettings[Set_EEG1] = 0x00; // only one channel at init
 	esloSettings[Set_TxPower] = 0x00; // 1 = Tx0, assumes default in SysConfig
@@ -733,15 +808,13 @@ static void ESLO_startup(void) {
 	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
 			esloSettings);
 
+	/* NVS */
+	NVS_Params_init(&nvsParams);
+	esloRecoverSession();
+
 	/* NAND */
 	NAND_Init(CONFIG_SPI, _NAND_CS);
 	ret = FlashReadDeviceIdentification(&devId);
-
-	ESLO_SetVersion(&esloVersion, CONFIG_TRNG_1);
-	eslo.type = Type_Version;
-	eslo.version = esloVersion; // set version once
-	eslo.data = esloVersion; // data is version in this case
-	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 
 	/* ADS129X - Defaults in SysConfig */
 	bool enableEEGInterrupt = updateEEGFromSettings(false); // do not turn on yet
@@ -1023,10 +1096,6 @@ static void SimplePeripheral_init(void) {
 // Initialize array to store connection handle and RSSI values
 	SimplePeripheral_initPHYRSSIArray();
 
-	GPIO_init();
-	SPI_init();
-	I2C_init();
-	ADC_init();
 	ESLO_startup();
 
 }
@@ -1662,6 +1731,8 @@ static void ESLO_performPeriodicTask() {
 	eslo.type = Type_BatteryVoltage;
 	eslo.data = adcValue0MicroVolt;
 	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+
+	esloUpdateNVS(); // save esloAddress to recover session
 
 	// test multiple times in case of outlier?
 	if (adcValue0MicroVolt < V_DROPOUT) {
