@@ -2,9 +2,6 @@
 
  @file  simple_peripheral.c
 
- @brief This file contains the Simple Peripheral sample application for use
- with the CC2650 Bluetooth Low Energy Protocol Stack.
-
  Group: WCS, BTS
  Target Device: cc13x2_26x2
 
