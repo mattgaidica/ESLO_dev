@@ -615,6 +615,10 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
 			esloSettings);
 
+	// updates esloAddr so data will export to end on power cycle if user pushed before powering down
+	// !! could consider doing this every second if data is recording?
+	esloUpdateNVS();
+
 	if (esloSettingsNew[Set_ExportData] > 0x00) {
 		SimplePeripheral_enqueueMsg(ES_EXPORT_DATA, NULL);
 	}
