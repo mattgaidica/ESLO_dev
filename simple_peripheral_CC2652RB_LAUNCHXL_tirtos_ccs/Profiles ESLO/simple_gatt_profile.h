@@ -67,6 +67,7 @@ extern "C"
 #define SIMPLEPROFILE_CHAR3                   2  // Settings
 #define SIMPLEPROFILE_CHAR4                   3  // EEG
 #define SIMPLEPROFILE_CHAR5                   4  // AXY
+#define SIMPLEPROFILE_CHAR6                   5  // therm
 
 // Simple Profile Service UUID
 #define SIMPLEPROFILE_SERV_UUID               0xE000
@@ -76,6 +77,7 @@ extern "C"
 #define SIMPLEPROFILE_CHAR3_UUID            0xE003
 #define SIMPLEPROFILE_CHAR4_UUID            0xE004
 #define SIMPLEPROFILE_CHAR5_UUID            0xE005
+#define SIMPLEPROFILE_CHAR6_UUID            0xE006
 
 // Simple Keys Profile Services bit fields
 #define SIMPLEPROFILE_SERVICE               0x00000001
@@ -86,6 +88,7 @@ extern "C"
 #define SIMPLEPROFILE_CHAR3_LEN			  16	// settings
 #define SIMPLEPROFILE_CHAR4_LEN			  248 	// 62 int32, EEG (eslo packets)
 #define SIMPLEPROFILE_CHAR5_LEN           128	// AXY (eslo packets)
+#define SIMPLEPROFILE_CHAR6_LEN			  4		// therm
 
 /*********************************************************************
  * TYPEDEFS

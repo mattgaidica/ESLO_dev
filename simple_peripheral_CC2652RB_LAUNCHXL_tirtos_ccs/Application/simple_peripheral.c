@@ -344,6 +344,7 @@ static void esloSetVersion();
 static void esloFillNAND();
 static void exportDataBLE();
 static void readBatt();
+static void readTherm();
 static void esloRecoverSession();
 static void esloUpdateNVS();
 static void esloResetVersion();
@@ -352,7 +353,7 @@ NVS_Handle nvsHandle;
 NVS_Attrs regionAttrs;
 NVS_Params nvsParams;
 static uint32_t nvsBuffer[3]; // esloSignature, esloVersion, esloAddr
-uint32_t ESLOSignature = 0xE123E123;
+uint32_t ESLOSignature = 0xE123E123; // something unique
 
 static Clock_Struct clkESLOPeriodic;
 spClockEventData_t argESLOPeriodic = { .event = ES_PERIODIC_EVT };
@@ -362,11 +363,16 @@ uint8_t esloSettingsSleep[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
 
 bool isPaired = false;
 
-ADC_Handle adc;
-ADC_Params adcParams;
+uint32_t vbatt_uV;
+ADC_Handle adc_vBatt;
+ADC_Params adcParams_vBatt;
+
+int32_t temp_uC;
+ADC_Handle adc_therm;
+ADC_Params adcParams_therm;
+
 int_fast16_t adcRes;
-uint16_t adcValue0;
-uint32_t adcValue0MicroVolt;
+uint16_t adcValue;
 
 uint32_t absoluteTime = 0;
 uint32_t esloVersion = 0x00000000;
@@ -471,7 +477,7 @@ static void esloFillNAND() {
 	while (ADDRESS_2_COL(esloAddr) != 0) {
 		readBatt();
 		eslo.type = Type_BatteryVoltage;
-		eslo.data = adcValue0MicroVolt;
+		eslo.data = vbatt_uV;
 		ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 	}
 }
@@ -518,12 +524,22 @@ static void exportDataBLE() {
 			esloSettings);
 }
 
-// adcValue0MicroVolt will never exceed 24-bits
-static void readBatt() {
-	adcRes = ADC_convert(adc, &adcValue0);
+static void readTherm() {
+	adcRes = ADC_convert(adc_therm, &adcValue);
 	if (adcRes == ADC_STATUS_SUCCESS) {
 		// read, multiply by 2 for voltage divider
-		adcValue0MicroVolt = ADC_convertToMicroVolts(adc, adcValue0) * 2;
+		temp_uC = ESLO_convertTherm(
+				ADC_convertToMicroVolts(adc_therm, adcValue));
+	}
+}
+
+// vbatt_uV will never exceed 24-bits
+static void readBatt() {
+	adcRes = ADC_convert(adc_vBatt, &adcValue);
+	if (adcRes == ADC_STATUS_SUCCESS) {
+		// read, multiply by 2 for voltage divider
+		vbatt_uV = ESLO_convertBatt(
+				ADC_convertToMicroVolts(adc_vBatt, adcValue));
 	}
 }
 
@@ -852,10 +868,18 @@ static void ESLO_startup(void) {
 	int1Val.i1_click = 0;
 	lsm303agr_xl_pin_int1_config_set(&dev_ctx_xl, &int1Val);
 
-	ADC_Params_init(&adcParams);
-	adc = ADC_open(R_VBATT, &adcParams);
-	if (adc == NULL) {
+	ADC_Params_init(&adcParams_vBatt);
+	adc_vBatt = ADC_open(R_VBATT, &adcParams_vBatt);
+	if (adc_vBatt == NULL) {
 		while (1) {
+			// !! what happens here?
+		}
+	}
+	ADC_Params_init(&adcParams_therm);
+	adc_therm = ADC_open(THERM, &adcParams_therm);
+	if (adc_therm == NULL) {
+		while (1) {
+			// !! what happens here?
 		}
 	}
 
@@ -1041,6 +1065,7 @@ static void SimplePeripheral_init(void) {
 //		uint8_t charValue3[SIMPLEPROFILE_CHAR3_LEN] = { 0 }; // set by ESLO init
 		uint8_t charValue4[SIMPLEPROFILE_CHAR4_LEN] = { 0 };
 		uint8_t charValue5[SIMPLEPROFILE_CHAR5_LEN] = { 0 };
+		uint8_t charValue6[SIMPLEPROFILE_CHAR6_LEN] = { 0 };
 
 		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR1, SIMPLEPROFILE_CHAR1_LEN,
 				charValue1);
@@ -1052,6 +1077,8 @@ static void SimplePeripheral_init(void) {
 				charValue4);
 		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5, SIMPLEPROFILE_CHAR5_LEN,
 				charValue5);
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6, SIMPLEPROFILE_CHAR6_LEN,
+				charValue6);
 	}
 
 // Register callback with SimpleGATTprofile
@@ -1719,7 +1746,10 @@ static void SimplePeripheral_processCharValueChangeEvt(uint8_t paramId) {
 static void SimplePeripheral_notifyVitals(void) {
 	readBatt();
 	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR2, SIMPLEPROFILE_CHAR2_LEN,
-			&adcValue0MicroVolt);
+			&vbatt_uV);
+	readTherm();
+	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6, SIMPLEPROFILE_CHAR6_LEN,
+			&temp_uC);
 }
 
 static void ESLO_performPeriodicTask() {
@@ -1730,13 +1760,18 @@ static void ESLO_performPeriodicTask() {
 
 	readBatt();
 	eslo.type = Type_BatteryVoltage;
-	eslo.data = adcValue0MicroVolt;
+	eslo.data = vbatt_uV;
+	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+
+	readTherm();
+	eslo.type = Type_Therm;
+	eslo.data = temp_uC;
 	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
 
 	esloUpdateNVS(); // save esloAddress to recover session
 
 	// test multiple times in case of outlier?
-	if (adcValue0MicroVolt < V_DROPOUT) {
+	if (vbatt_uV < V_DROPOUT) {
 		esloSleep(); // good night
 		// write stream until end of page
 		esloFillNAND();
