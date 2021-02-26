@@ -8,6 +8,7 @@
  ******************************************************************************/
 
 #include <string.h>
+#include <math.h> // atan2(x,y), M_PI
 
 #include <ti/drivers/ADC.h>
 #include <ti/drivers/GPIO.h>
@@ -90,6 +91,7 @@
 #define ES_XL_NOTIF							 11
 #define ES_PERIODIC_EVT						 12
 #define ES_EXPORT_DATA						 13
+#define ES_MG_NOTIF						     14
 
 // Internal Events for RTOS application
 #define SP_ICALL_EVT                         ICALL_MSG_EVENT_ID // Event_Id_31
@@ -333,6 +335,7 @@ static void eegInterrupt(bool enableInterrupt);
 
 static uint8_t updateXlFromSettings(bool actOnInterrupt);
 static void xlInterrupt(bool enableInterrupt);
+static void mgInterrupt(bool enableInterrupt);
 
 static uint8_t USE_EEG(uint8_t *esloSettings);
 static uint8_t USE_AXY(uint8_t *esloSettings);
@@ -398,14 +401,15 @@ int32_t xlZBuffer[PACKET_SZ_XL];
 stmdev_ctx_t dev_ctx_xl;
 stmdev_ctx_t dev_ctx_mg;
 static axis3bit16_t data_raw_acceleration;
-static uint8_t whoamI;
+static axis3bit16_t data_raw_magnetic;
+static uint8_t whoamI, rst;
 
 /* NAND Vars */
 uint8_t ret;
 uint16_t devId;
 uint8_t esloBuffer[PAGE_DATA_SIZE];
 uint8_t readBuf[PAGE_SIZE]; // 2176, always allocate full page size
-uint32_t esloPacket;
+uint32_t packet;
 uAddrType esloAddr;
 
 /* ADS129X Vars */
@@ -654,8 +658,6 @@ static uint8_t USE_AXY(uint8_t *esloSettings) {
 }
 
 static void eegDataHandler(void) {
-	uint32_t packet;
-
 	if (USE_EEG(esloSettings) == ESLO_MODULE_ON) { // double check
 		ADS_updateData(&status, &ch1, &ch2, &ch3, &ch4);
 
@@ -741,12 +743,12 @@ static void eegDataHandler(void) {
 }
 
 static void xlDataHandler(void) {
-	uint32_t packet;
 	uint8_t iFifo;
 	lsm303agr_fifo_src_reg_a_t fifo_reg;
 	lsm303agr_xl_fifo_status_get(&dev_ctx_xl, &fifo_reg);
 
 	if (USE_AXY(esloSettings) == ESLO_MODULE_ON) { // double check
+		eegInterrupt(false); // !! use I2C callback instead? single-shot LSM303AGR on CC2652 timer?
 		for (iFifo = 0; iFifo <= fifo_reg.fss; iFifo++) { // 32 samples
 			memset(data_raw_acceleration.u8bit, 0x00, 3 * sizeof(int16_t));
 			lsm303agr_acceleration_raw_get(&dev_ctx_xl,
@@ -795,20 +797,58 @@ static void xlDataHandler(void) {
 	}
 }
 
+static void mgDataHandler(void) {
+	lsm303agr_reg_t reg;
+	lsm303agr_mag_status_get(&dev_ctx_mg, &reg.status_reg_m);
+
+	if (reg.status_reg_m.zyxda) {
+		/* Read magnetic field data */
+		memset(data_raw_magnetic.u8bit, 0x00, 3 * sizeof(int16_t));
+		lsm303agr_magnetic_raw_get(&dev_ctx_mg, data_raw_magnetic.u8bit);
+
+		eslo.type = Type_AxyMgx;
+		eslo.data = (uint32_t) data_raw_magnetic.i16bit[0];
+		ESLO_Packet(eslo, &packet);
+		if (!isPaired) {
+			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+		}
+
+		eslo.type = Type_AxyMgy;
+		eslo.data = (uint32_t) data_raw_magnetic.i16bit[0];
+		ESLO_Packet(eslo, &packet);
+		if (!isPaired) {
+			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+		}
+
+		float compassHeading = atan2f((float)data_raw_magnetic.i16bit[1], (float)data_raw_magnetic.i16bit[0]) * (180 / M_PI);
+		int compassInt = (int)compassHeading;
+
+		for (int i = 0; i < compassInt; i++) {
+			GPIO_write(LED_0,0x01);
+		}
+		GPIO_write(LED_0,0x00);
+
+
+		eslo.type = Type_AxyMgz;
+		eslo.data = (uint32_t) data_raw_magnetic.i16bit[0];
+		ESLO_Packet(eslo, &packet);
+		if (!isPaired) {
+			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+		}
+
+	}
+}
+
 void eegDataReady(uint_least8_t index) {
 	SimplePeripheral_enqueueMsg(ES_EEG_NOTIF, NULL);
 }
 
 void axyXlReady(uint_least8_t index) {
-	GPIO_PinConfig rememberCfg;
-	GPIO_getConfig(_EEG_DRDY, &rememberCfg);
-	// !! turn off, allow axy to block when reading? use i2c callback?
-	eegInterrupt(false);
 	SimplePeripheral_enqueueMsg(ES_XL_NOTIF, NULL);
-	GPIO_setConfig(_EEG_DRDY, rememberCfg);
 }
 
 void axyMagReady(uint_least8_t index) {
+	SimplePeripheral_enqueueMsg(ES_MG_NOTIF, NULL);
 }
 
 static void ESLO_startup(void) {
@@ -845,15 +885,15 @@ static void ESLO_startup(void) {
 	dev_ctx_mg.read_reg = platform_i2c_read;
 	dev_ctx_mg.handle = (void*) LSM303AGR_I2C_ADD_MG;
 
-	lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_DISABLE);
-	lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_POWER_DOWN);
+	lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_ENABLE);
 
 	whoamI = 0;
 	lsm303agr_xl_device_id_get(&dev_ctx_xl, &whoamI);
 	while (whoamI != LSM303AGR_ID_XL) {
-		while (1) {
-		}
+		while (1)
+			;
 	}
+
 	lsm303agr_xl_block_data_update_set(&dev_ctx_xl, PROPERTY_ENABLE);
 	lsm303agr_xl_full_scale_set(&dev_ctx_xl, LSM303AGR_2g);
 	lsm303agr_xl_operating_mode_set(&dev_ctx_xl, LSM303AGR_HR_12bit);
@@ -867,6 +907,27 @@ static void ESLO_startup(void) {
 	int1Val.i1_aoi1 = 0;
 	int1Val.i1_click = 0;
 	lsm303agr_xl_pin_int1_config_set(&dev_ctx_xl, &int1Val);
+
+	whoamI = 0;
+	lsm303agr_mag_device_id_get(&dev_ctx_mg, &whoamI);
+	if (whoamI != LSM303AGR_ID_MG)
+		while (1)
+			; /*manage here device not found */
+
+	/* Restore default configuration for magnetometer */
+	lsm303agr_mag_reset_set(&dev_ctx_mg, PROPERTY_ENABLE);
+	do {
+		lsm303agr_mag_reset_get(&dev_ctx_mg, &rst);
+	} while (rst);
+
+	lsm303agr_mag_block_data_update_set(&dev_ctx_mg, PROPERTY_ENABLE);
+	lsm303agr_mag_data_rate_set(&dev_ctx_mg, LSM303AGR_MG_ODR_10Hz);
+	lsm303agr_mag_set_rst_mode_set(&dev_ctx_mg,
+			LSM303AGR_SENS_OFF_CANC_EVERY_ODR);
+	lsm303agr_mag_offset_temp_comp_set(&dev_ctx_mg, PROPERTY_ENABLE);
+	lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_ENABLE);
+	lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_CONTINUOUS_MODE); // LSM303AGR_POWER_DOWN
+	lsm303agr_mag_drdy_on_pin_set(&dev_ctx_mg, PROPERTY_ENABLE);
 
 	ADC_Params_init(&adcParams_vBatt);
 	adc_vBatt = ADC_open(R_VBATT, &adcParams_vBatt);
@@ -885,6 +946,7 @@ static void ESLO_startup(void) {
 
 	updateXlFromSettings(true); // turn on interrupt here
 	eegInterrupt(enableEEGInterrupt); // turn on now
+	mgInterrupt(true); // !! ALWAYS ON RIGHT NOW
 	Util_startClock(&clkESLOPeriodic);
 }
 
@@ -928,6 +990,14 @@ static uint8_t updateEEGFromSettings(bool actOnInterrupt) {
 		GPIO_write(_SHDN, ESLO_LOW);
 	}
 	return enableInterrupt;
+}
+
+static void mgInterrupt(bool enableInterrupt) {
+	if (enableInterrupt) {
+		GPIO_enableInt(AXY_MAG);
+	} else {
+		GPIO_disableInt(AXY_MAG);
+	}
 }
 
 static void xlInterrupt(bool enableInterrupt) {
@@ -1380,6 +1450,9 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 		break;
 	case ES_XL_NOTIF:
 		xlDataHandler();
+		break;
+	case ES_MG_NOTIF:
+		mgDataHandler();
 		break;
 	case ES_EXPORT_DATA:
 		exportDataBLE();
