@@ -91,7 +91,6 @@
 #define ES_XL_NOTIF							 11
 #define ES_PERIODIC_EVT						 12
 #define ES_EXPORT_DATA						 13
-#define ES_MG_NOTIF						     14
 
 // Internal Events for RTOS application
 #define SP_ICALL_EVT                         ICALL_MSG_EVENT_ID // Event_Id_31
@@ -335,7 +334,6 @@ static void eegInterrupt(bool enableInterrupt);
 
 static uint8_t updateXlFromSettings(bool actOnInterrupt);
 static void xlInterrupt(bool enableInterrupt);
-static void mgInterrupt(bool enableInterrupt);
 
 static uint8_t USE_EEG(uint8_t *esloSettings);
 static uint8_t USE_AXY(uint8_t *esloSettings);
@@ -381,8 +379,6 @@ uint32_t absoluteTime = 0;
 uint32_t esloVersion = 0x00000000;
 uint32_t axyCount = 0;
 uint32_t eegCount = 0;
-uint32_t magCount = 0;
-eslo_dt eslo = { .mode = Mode_Debug };
 ReturnType ret; // NAND
 
 #define PACKET_SZ_EEG SIMPLEPROFILE_CHAR4_LEN / 4
@@ -396,13 +392,18 @@ uint8_t iEEG = 0;
 int32_t xlXBuffer[PACKET_SZ_XL];
 int32_t xlYBuffer[PACKET_SZ_XL];
 int32_t xlZBuffer[PACKET_SZ_XL];
+int32_t mgXBuffer[PACKET_SZ_XL];
+int32_t mgYBuffer[PACKET_SZ_XL];
+int32_t mgZBuffer[PACKET_SZ_XL];
+uint8_t iXL = 0;
+uint8_t iMG = 0;
 
 /* AXY Vars */
 stmdev_ctx_t dev_ctx_xl;
 stmdev_ctx_t dev_ctx_mg;
 static axis3bit16_t data_raw_acceleration;
 static axis3bit16_t data_raw_magnetic;
-static uint8_t whoamI, rst;
+lsm303agr_reg_t reg;
 
 /* NAND Vars */
 uint8_t ret;
@@ -468,21 +469,22 @@ static void esloRecoverSession() {
 }
 
 static void esloSetVersion() {
+	eslo_dt eslo;
 	ESLO_GenerateVersion(&esloVersion, CONFIG_TRNG_1);
 	eslo.type = Type_Version;
-	eslo.version = esloVersion; // set version once
-	eslo.data = esloVersion; // data is version in this case
-	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+	eslo.data = esloVersion;
+	ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
 }
 
 static void esloFillNAND() {
 	// !! readBatt does increase power here
 	// consider writing 0xFFFFFFFF to identify in decoder as end
+	eslo_dt eslo;
 	while (ADDRESS_2_COL(esloAddr) != 0) {
 		readBatt();
 		eslo.type = Type_BatteryVoltage;
 		eslo.data = vbatt_uV;
-		ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+		ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
 	}
 }
 
@@ -564,6 +566,8 @@ static void esloSleep() {
 }
 
 static void mapEsloSettings(uint8_t *esloSettingsNew) {
+	eslo_dt eslo;
+
 	// order: end with the things that have interrupts
 	if (esloSettingsNew[Set_ExportData] > 0x00) {
 		// force turn off AXY and EEG
@@ -588,7 +592,7 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 		memcpy(&absoluteTime, esloSettingsNew + Set_Time1, 4);
 		eslo.type = Type_AbsoluteTime;
 		eslo.data = absoluteTime; // data is version in this case
-		ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+		ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
 		Util_restartClock(&clkESLOPeriodic, ES_PERIODIC_EVT_PERIOD);
 	}
 
@@ -658,6 +662,11 @@ static uint8_t USE_AXY(uint8_t *esloSettings) {
 }
 
 static void eegDataHandler(void) {
+	eslo_dt eslo_eeg1;
+	eslo_dt eslo_eeg2;
+	eslo_dt eslo_eeg3;
+	eslo_dt eslo_eeg4;
+
 	if (USE_EEG(esloSettings) == ESLO_MODULE_ON) { // double check
 		ADS_updateData(&status, &ch1, &ch2, &ch3, &ch4);
 
@@ -667,51 +676,50 @@ static void eegDataHandler(void) {
 		}
 
 		if (esloSettings[Set_EEG1]) {
-			eslo.type = Type_EEG1;
-			eslo.data = ch1;
-			ESLO_Packet(eslo, &packet);
+			eslo_eeg1.type = Type_EEG1;
+			eslo_eeg1.data = ch1;
+			ESLO_Packet(eslo_eeg1, &packet);
 			if (!isPaired) {
-				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_eeg1);
 			} else {
 				eeg1Buffer[iEEG] = packet;
 			}
 		}
 
 		if (esloSettings[Set_EEG2]) {
-			eslo.type = Type_EEG2;
-			eslo.data = ch2;
-			ESLO_Packet(eslo, &packet);
+			eslo_eeg2.type = Type_EEG2;
+			eslo_eeg2.data = ch2;
+			ESLO_Packet(eslo_eeg2, &packet);
 			if (!isPaired) {
-				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_eeg2);
 			} else {
 				eeg2Buffer[iEEG] = packet;
 			}
 		}
 
 		if (esloSettings[Set_EEG3]) {
-			eslo.type = Type_EEG3;
-			eslo.data = ch3;
-			ESLO_Packet(eslo, &packet);
+			eslo_eeg3.type = Type_EEG3;
+			eslo_eeg3.data = ch3;
+			ESLO_Packet(eslo_eeg3, &packet);
 			if (!isPaired) {
-				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_eeg3);
 			} else {
 				eeg3Buffer[iEEG] = packet;
 			}
 		}
 
 		if (esloSettings[Set_EEG4]) {
-			eslo.type = Type_EEG4;
-			eslo.data = ch4;
-			ESLO_Packet(eslo, &packet);
+			eslo_eeg4.type = Type_EEG4;
+			eslo_eeg4.data = ch4;
+			ESLO_Packet(eslo_eeg4, &packet);
 			if (!isPaired) {
-				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_eeg4);
 			} else {
 				eeg4Buffer[iEEG] = packet;
 			}
 		}
 
 		iEEG++;
-
 		if (iEEG == PACKET_SZ_EEG) {
 			if (isPaired) {
 				if (esloSettings[Set_EEG1]) {
@@ -730,11 +738,6 @@ static void eegDataHandler(void) {
 					SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
 					SIMPLEPROFILE_CHAR4_LEN, eeg4Buffer);
 				}
-			} else {
-				uint8_t setGPIO = !GPIO_read(LED_0);
-				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR1, sizeof(uint8_t),
-						&setGPIO); // only sets parameter, does not cue LED change
-				GPIO_write(LED_0, setGPIO);
 			}
 			iEEG = 0;
 		}
@@ -742,100 +745,106 @@ static void eegDataHandler(void) {
 	}
 }
 
+// !! handle ret values?
 static void xlDataHandler(void) {
-	uint8_t iFifo;
-	lsm303agr_fifo_src_reg_a_t fifo_reg;
-	lsm303agr_xl_fifo_status_get(&dev_ctx_xl, &fifo_reg);
+	eslo_dt eslo_xlx;
+	eslo_dt eslo_xly;
+	eslo_dt eslo_xlz;
+	eslo_dt eslo_mgx;
+	eslo_dt eslo_mgy;
+	eslo_dt eslo_mgz;
 
 	if (USE_AXY(esloSettings) == ESLO_MODULE_ON) { // double check
-		eegInterrupt(false); // !! use I2C callback instead? single-shot LSM303AGR on CC2652 timer?
-		for (iFifo = 0; iFifo <= fifo_reg.fss; iFifo++) { // 32 samples
+		// XL
+		lsm303agr_xl_status_get(&dev_ctx_xl, &reg.status_reg_a);
+		if (reg.status_reg_a.zyxda) {
 			memset(data_raw_acceleration.u8bit, 0x00, 3 * sizeof(int16_t));
 			lsm303agr_acceleration_raw_get(&dev_ctx_xl,
 					data_raw_acceleration.u8bit);
 
-			eslo.type = Type_AxyXlx;
-			eslo.data = (uint32_t) data_raw_acceleration.i16bit[0];
-			ESLO_Packet(eslo, &packet);
-			xlXBuffer[iFifo] = packet;
+			eslo_xlx.type = Type_AxyXlx;
+			eslo_xlx.data = (uint32_t) data_raw_acceleration.i16bit[0];
+			ESLO_Packet(eslo_xlx, &packet);
+			xlXBuffer[iXL] = packet;
 			if (!isPaired) {
-				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_xlx);
 			}
 
-			eslo.type = Type_AxyXly;
-			eslo.data = (uint32_t) data_raw_acceleration.i16bit[1];
-			ESLO_Packet(eslo, &packet);
-			xlYBuffer[iFifo] = packet;
+			eslo_xly.type = Type_AxyXly;
+			eslo_xly.data = (uint32_t) data_raw_acceleration.i16bit[1];
+			ESLO_Packet(eslo_xly, &packet);
+			xlYBuffer[iXL] = packet;
 			if (!isPaired) {
-				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_xly);
 			}
 
-			eslo.type = Type_AxyXlz;
-			eslo.data = (uint32_t) data_raw_acceleration.i16bit[2];
-			ESLO_Packet(eslo, &packet);
-			xlZBuffer[iFifo] = packet;
+			eslo_xlz.type = Type_AxyXlz;
+			eslo_xlz.data = (uint32_t) data_raw_acceleration.i16bit[2];
+			ESLO_Packet(eslo_xlz, &packet);
+			xlZBuffer[iXL] = packet;
 			if (!isPaired) {
-				ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_xlz);
+			}
+			iXL++;
+		}
+
+		// MG
+		lsm303agr_mag_status_get(&dev_ctx_mg, &reg.status_reg_m);
+		if (reg.status_reg_m.zyxda) {
+			memset(data_raw_magnetic.u8bit, 0x00, 3 * sizeof(int16_t));
+			lsm303agr_magnetic_raw_get(&dev_ctx_mg, data_raw_magnetic.u8bit);
+
+			eslo_mgx.type = Type_AxyMgx;
+			eslo_mgx.data = (uint32_t) data_raw_magnetic.i16bit[0];
+			ESLO_Packet(eslo_mgx, &packet);
+			mgXBuffer[iMG] = packet;
+			if (!isPaired) {
+				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_mgx);
 			}
 
-			axyCount++;
-			// !!handle ret
+			eslo_mgy.type = Type_AxyMgy;
+			eslo_mgy.data = (uint32_t) data_raw_magnetic.i16bit[1];
+			ESLO_Packet(eslo_mgy, &packet);
+			mgYBuffer[iMG] = packet;
+			if (!isPaired) {
+				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_mgy);
+			}
+
+			//		float compassHeading = atan2f((float)data_raw_magnetic.i16bit[1], (float)data_raw_magnetic.i16bit[0]) * (180 / M_PI);
+
+			eslo_mgz.type = Type_AxyMgz;
+			eslo_mgz.data = (uint32_t) data_raw_magnetic.i16bit[2];
+			ESLO_Packet(eslo_mgz, &packet);
+			mgZBuffer[iMG] = packet;
+			if (!isPaired) {
+				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_mgz);
+			}
+			iMG++;
 		}
 
-		if (isPaired) {
-			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
-			SIMPLEPROFILE_CHAR5_LEN, xlXBuffer);
-			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
-			SIMPLEPROFILE_CHAR5_LEN, xlYBuffer);
-			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
-			SIMPLEPROFILE_CHAR5_LEN, xlZBuffer);
+		if (iXL == PACKET_SZ_XL) {
+			if (isPaired) {
+				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+				SIMPLEPROFILE_CHAR5_LEN, xlXBuffer);
+				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+				SIMPLEPROFILE_CHAR5_LEN, xlYBuffer);
+				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+				SIMPLEPROFILE_CHAR5_LEN, xlZBuffer);
+			}
+			iXL = 0;
 		}
-
-		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE);
-		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE);
-		eegInterrupt(true); // turn back on
-	}
-}
-
-static void mgDataHandler(void) {
-	lsm303agr_reg_t reg;
-	lsm303agr_mag_status_get(&dev_ctx_mg, &reg.status_reg_m);
-
-	if (reg.status_reg_m.zyxda) {
-		/* Read magnetic field data */
-		memset(data_raw_magnetic.u8bit, 0x00, 3 * sizeof(int16_t));
-		lsm303agr_magnetic_raw_get(&dev_ctx_mg, data_raw_magnetic.u8bit);
-
-		eslo.type = Type_AxyMgx;
-		eslo.data = (uint32_t) data_raw_magnetic.i16bit[0];
-		ESLO_Packet(eslo, &packet);
-		if (!isPaired) {
-			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+		if (iMG == PACKET_SZ_XL) {
+			if (isPaired) {
+				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+				SIMPLEPROFILE_CHAR5_LEN, mgXBuffer);
+				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+				SIMPLEPROFILE_CHAR5_LEN, mgYBuffer);
+				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+				SIMPLEPROFILE_CHAR5_LEN, mgZBuffer);
+			}
+			iMG = 0;
 		}
-
-		eslo.type = Type_AxyMgy;
-		eslo.data = (uint32_t) data_raw_magnetic.i16bit[0];
-		ESLO_Packet(eslo, &packet);
-		if (!isPaired) {
-			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
-		}
-
-		float compassHeading = atan2f((float)data_raw_magnetic.i16bit[1], (float)data_raw_magnetic.i16bit[0]) * (180 / M_PI);
-		int compassInt = (int)compassHeading;
-
-		for (int i = 0; i < compassInt; i++) {
-			GPIO_write(LED_0,0x01);
-		}
-		GPIO_write(LED_0,0x00);
-
-
-		eslo.type = Type_AxyMgz;
-		eslo.data = (uint32_t) data_raw_magnetic.i16bit[0];
-		ESLO_Packet(eslo, &packet);
-		if (!isPaired) {
-			ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
-		}
-
+		axyCount++;
 	}
 }
 
@@ -845,10 +854,6 @@ void eegDataReady(uint_least8_t index) {
 
 void axyXlReady(uint_least8_t index) {
 	SimplePeripheral_enqueueMsg(ES_XL_NOTIF, NULL);
-}
-
-void axyMagReady(uint_least8_t index) {
-	SimplePeripheral_enqueueMsg(ES_MG_NOTIF, NULL);
 }
 
 static void ESLO_startup(void) {
@@ -887,47 +892,35 @@ static void ESLO_startup(void) {
 
 	lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_ENABLE);
 
-	whoamI = 0;
-	lsm303agr_xl_device_id_get(&dev_ctx_xl, &whoamI);
-	while (whoamI != LSM303AGR_ID_XL) {
+	reg.byte = 0;
+	lsm303agr_xl_device_id_get(&dev_ctx_xl, &reg.byte);
+	if (reg.byte != LSM303AGR_ID_XL)
 		while (1)
 			;
-	}
 
 	lsm303agr_xl_block_data_update_set(&dev_ctx_xl, PROPERTY_ENABLE);
 	lsm303agr_xl_full_scale_set(&dev_ctx_xl, LSM303AGR_2g);
 	lsm303agr_xl_operating_mode_set(&dev_ctx_xl, LSM303AGR_HR_12bit);
-	lsm303agr_xl_fifo_set(&dev_ctx_xl, PROPERTY_ENABLE);
-	lsm303agr_ctrl_reg3_a_t int1Val;
-	int1Val.i1_overrun = 1; // trigger interrupt
-	int1Val.i1_wtm = 0;
-	int1Val.i1_drdy2 = 0;
-	int1Val.i1_drdy1 = 0;
-	int1Val.i1_aoi2 = 0;
-	int1Val.i1_aoi1 = 0;
-	int1Val.i1_click = 0;
-	lsm303agr_xl_pin_int1_config_set(&dev_ctx_xl, &int1Val);
 
-	whoamI = 0;
-	lsm303agr_mag_device_id_get(&dev_ctx_mg, &whoamI);
-	if (whoamI != LSM303AGR_ID_MG)
+	reg.byte = 0;
+	lsm303agr_mag_device_id_get(&dev_ctx_mg, &reg.byte);
+	if (reg.byte != LSM303AGR_ID_MG)
 		while (1)
 			; /*manage here device not found */
 
 	/* Restore default configuration for magnetometer */
 	lsm303agr_mag_reset_set(&dev_ctx_mg, PROPERTY_ENABLE);
 	do {
-		lsm303agr_mag_reset_get(&dev_ctx_mg, &rst);
-	} while (rst);
+		lsm303agr_mag_reset_get(&dev_ctx_mg, &reg.byte);
+	} while (reg.byte);
 
 	lsm303agr_mag_block_data_update_set(&dev_ctx_mg, PROPERTY_ENABLE);
-	lsm303agr_mag_data_rate_set(&dev_ctx_mg, LSM303AGR_MG_ODR_10Hz);
+	lsm303agr_mag_data_rate_set(&dev_ctx_mg, LSM303AGR_MG_ODR_10Hz); // ignored for single trigger
 	lsm303agr_mag_set_rst_mode_set(&dev_ctx_mg,
 			LSM303AGR_SENS_OFF_CANC_EVERY_ODR);
 	lsm303agr_mag_offset_temp_comp_set(&dev_ctx_mg, PROPERTY_ENABLE);
 	lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_ENABLE);
 	lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_CONTINUOUS_MODE); // LSM303AGR_POWER_DOWN
-	lsm303agr_mag_drdy_on_pin_set(&dev_ctx_mg, PROPERTY_ENABLE);
 
 	ADC_Params_init(&adcParams_vBatt);
 	adc_vBatt = ADC_open(R_VBATT, &adcParams_vBatt);
@@ -946,7 +939,6 @@ static void ESLO_startup(void) {
 
 	updateXlFromSettings(true); // turn on interrupt here
 	eegInterrupt(enableEEGInterrupt); // turn on now
-	mgInterrupt(true); // !! ALWAYS ON RIGHT NOW
 	Util_startClock(&clkESLOPeriodic);
 }
 
@@ -992,19 +984,11 @@ static uint8_t updateEEGFromSettings(bool actOnInterrupt) {
 	return enableInterrupt;
 }
 
-static void mgInterrupt(bool enableInterrupt) {
-	if (enableInterrupt) {
-		GPIO_enableInt(AXY_MAG);
-	} else {
-		GPIO_disableInt(AXY_MAG);
-	}
-}
-
 static void xlInterrupt(bool enableInterrupt) {
 	if (enableInterrupt) {
-		GPIO_enableInt(AXY_INT1);
+		GPIO_enableInt(AXY_DRDY);
 	} else {
-		GPIO_disableInt(AXY_INT1);
+		GPIO_disableInt(AXY_DRDY);
 	}
 }
 
@@ -1022,8 +1006,6 @@ static uint8_t updateXlFromSettings(bool actOnInterrupt) {
 		default:
 			break;
 		}
-		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_BYPASS_MODE); // clear int
-		lsm303agr_xl_fifo_mode_set(&dev_ctx_xl, LSM303AGR_FIFO_MODE); // enable
 		enableInterrupt = true;
 		if (actOnInterrupt) {
 			xlInterrupt(enableInterrupt);
@@ -1451,9 +1433,6 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 	case ES_XL_NOTIF:
 		xlDataHandler();
 		break;
-	case ES_MG_NOTIF:
-		mgDataHandler();
-		break;
 	case ES_EXPORT_DATA:
 		exportDataBLE();
 		break;
@@ -1826,20 +1805,22 @@ static void SimplePeripheral_notifyVitals(void) {
 }
 
 static void ESLO_performPeriodicTask() {
+	eslo_dt eslo;
+
 	absoluteTime += (ES_PERIODIC_EVT_PERIOD / 1000);
 	eslo.type = Type_AbsoluteTime;
 	eslo.data = absoluteTime;
-	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+	ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
 
 	readBatt();
 	eslo.type = Type_BatteryVoltage;
 	eslo.data = vbatt_uV;
-	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+	ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
 
 	readTherm();
 	eslo.type = Type_Therm;
 	eslo.data = temp_uC;
-	ret = ESLO_Write(&esloAddr, esloBuffer, eslo);
+	ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
 
 	esloUpdateNVS(); // save esloAddress to recover session
 

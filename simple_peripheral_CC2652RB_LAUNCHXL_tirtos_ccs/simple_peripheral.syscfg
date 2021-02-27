@@ -169,15 +169,14 @@ GPIO7.callbackFunction  = "eegDataReady";
 GPIO7.gpioPin.$assign   = "boosterpack.2";
 GPIO7.pinInstance.$name = "CONFIG_PIN_13";
 
+GPIO8.callbackFunction  = "axyXlReady";
 GPIO8.interruptTrigger  = "Rising Edge";
-GPIO8.callbackFunction  = "axyMagReady";
-GPIO8.$name             = "AXY_MAG";
+GPIO8.$name             = "AXY_DRDY";
 GPIO8.gpioPin.$assign   = "boosterpack.10";
 GPIO8.pinInstance.$name = "CONFIG_PIN_15";
 
 GPIO9.$name             = "AXY_INT1";
-GPIO9.callbackFunction  = "axyXlReady";
-GPIO9.interruptTrigger  = "Rising Edge";
+GPIO9.callbackFunction  = "";
 GPIO9.gpioPin.$assign   = "boosterpack.19";
 GPIO9.pinInstance.$name = "CONFIG_PIN_16";
 
