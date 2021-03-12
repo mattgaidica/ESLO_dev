@@ -68,6 +68,7 @@
 // How often to perform periodic event (in ms)
 #define SP_PERIODIC_EVT_PERIOD               5000
 #define ES_PERIODIC_EVT_PERIOD				 60000
+#define ES_AXY_PERIOD				 1000
 
 // Task configuration
 #define SP_TASK_PRIORITY                     1
@@ -91,6 +92,7 @@
 #define ES_XL_NOTIF							 11
 #define ES_PERIODIC_EVT						 12
 #define ES_EXPORT_DATA						 13
+#define ES_AXY_EVT						     14
 
 // Internal Events for RTOS application
 #define SP_ICALL_EVT                         ICALL_MSG_EVENT_ID // Event_Id_31
@@ -359,6 +361,9 @@ uint32_t ESLOSignature = 0xE123E123; // something unique
 static Clock_Struct clkESLOPeriodic;
 spClockEventData_t argESLOPeriodic = { .event = ES_PERIODIC_EVT };
 
+static Clock_Struct clkESLOAxy;
+spClockEventData_t argESLOAxy = { .event = ES_AXY_EVT };
+
 uint8_t esloSettings[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
 uint8_t esloSettingsSleep[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
 
@@ -514,12 +519,12 @@ static void exportDataBLE() {
 		}
 
 		// loop 16 times at 128 bytes each = 2048 total
-		for (iBLE = 0; iBLE < PAGE_DATA_SIZE / SIMPLEPROFILE_CHAR5_LEN;
+		for (iBLE = 0; iBLE < PAGE_DATA_SIZE / SIMPLEPROFILE_CHAR4_LEN;
 				iBLE++) {
-			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
-			SIMPLEPROFILE_CHAR5_LEN,
-					readBuf + (iBLE * SIMPLEPROFILE_CHAR5_LEN));
-			Task_sleep(7500); // throttle at 10uS increments
+			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
+			SIMPLEPROFILE_CHAR4_LEN,
+					readBuf + (iBLE * SIMPLEPROFILE_CHAR4_LEN));
+			Task_sleep(1000); // throttle
 		}
 
 		esloAddr += 0x00001000; // +1 page
@@ -856,91 +861,6 @@ void axyXlReady(uint_least8_t index) {
 	SimplePeripheral_enqueueMsg(ES_XL_NOTIF, NULL);
 }
 
-static void ESLO_startup(void) {
-	GPIO_init();
-	SPI_init();
-	I2C_init();
-	ADC_init();
-	NVS_init();
-
-	// init Settings
-	esloSettings[Set_EEG1] = 0x00; // only one channel at init
-	esloSettings[Set_TxPower] = 0x00; // 1 = Tx0, assumes default in SysConfig
-	esloSettings[Set_AxyMode] = 0x00;
-	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
-			esloSettings);
-
-	/* NVS */
-	NVS_Params_init(&nvsParams);
-	esloRecoverSession();
-
-	/* NAND */
-	NAND_Init(CONFIG_SPI, _NAND_CS);
-	ret = FlashReadDeviceIdentification(&devId);
-
-	/* ADS129X - Defaults in SysConfig */
-	bool enableEEGInterrupt = updateEEGFromSettings(false); // do not turn on yet
-
-	/* AXY - init no matter what */
-	AXY_Init(CONFIG_I2C_AXY);
-	dev_ctx_xl.write_reg = platform_i2c_write;
-	dev_ctx_xl.read_reg = platform_i2c_read;
-	dev_ctx_xl.handle = (void*) LSM303AGR_I2C_ADD_XL;
-	dev_ctx_mg.write_reg = platform_i2c_write;
-	dev_ctx_mg.read_reg = platform_i2c_read;
-	dev_ctx_mg.handle = (void*) LSM303AGR_I2C_ADD_MG;
-
-	lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_ENABLE);
-
-	reg.byte = 0;
-	lsm303agr_xl_device_id_get(&dev_ctx_xl, &reg.byte);
-	if (reg.byte != LSM303AGR_ID_XL)
-		while (1)
-			;
-
-	lsm303agr_xl_block_data_update_set(&dev_ctx_xl, PROPERTY_ENABLE);
-	lsm303agr_xl_full_scale_set(&dev_ctx_xl, LSM303AGR_2g);
-	lsm303agr_xl_operating_mode_set(&dev_ctx_xl, LSM303AGR_HR_12bit);
-
-	reg.byte = 0;
-	lsm303agr_mag_device_id_get(&dev_ctx_mg, &reg.byte);
-	if (reg.byte != LSM303AGR_ID_MG)
-		while (1)
-			; /*manage here device not found */
-
-	/* Restore default configuration for magnetometer */
-	lsm303agr_mag_reset_set(&dev_ctx_mg, PROPERTY_ENABLE);
-	do {
-		lsm303agr_mag_reset_get(&dev_ctx_mg, &reg.byte);
-	} while (reg.byte);
-
-	lsm303agr_mag_block_data_update_set(&dev_ctx_mg, PROPERTY_ENABLE);
-	lsm303agr_mag_data_rate_set(&dev_ctx_mg, LSM303AGR_MG_ODR_10Hz); // ignored for single trigger
-	lsm303agr_mag_set_rst_mode_set(&dev_ctx_mg,
-			LSM303AGR_SENS_OFF_CANC_EVERY_ODR);
-	lsm303agr_mag_offset_temp_comp_set(&dev_ctx_mg, PROPERTY_ENABLE);
-	lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_ENABLE);
-	lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_CONTINUOUS_MODE); // LSM303AGR_POWER_DOWN
-
-	ADC_Params_init(&adcParams_vBatt);
-	adc_vBatt = ADC_open(R_VBATT, &adcParams_vBatt);
-	if (adc_vBatt == NULL) {
-		while (1) {
-			// !! what happens here?
-		}
-	}
-	ADC_Params_init(&adcParams_therm);
-	adc_therm = ADC_open(THERM, &adcParams_therm);
-	if (adc_therm == NULL) {
-		while (1) {
-			// !! what happens here?
-		}
-	}
-
-	updateXlFromSettings(true); // turn on interrupt here
-	eegInterrupt(enableEEGInterrupt); // turn on now
-	Util_startClock(&clkESLOPeriodic);
-}
 
 static void eegInterrupt(bool enableInterrupt) {
 	if (enableInterrupt) {
@@ -986,7 +906,7 @@ static uint8_t updateEEGFromSettings(bool actOnInterrupt) {
 
 static void xlInterrupt(bool enableInterrupt) {
 	if (enableInterrupt) {
-		GPIO_enableInt(AXY_DRDY);
+//		GPIO_enableInt(AXY_DRDY);
 	} else {
 		GPIO_disableInt(AXY_DRDY);
 	}
@@ -996,26 +916,125 @@ static uint8_t updateXlFromSettings(bool actOnInterrupt) {
 	bool enableInterrupt;
 
 	if (USE_AXY(esloSettings) == ESLO_MODULE_ON) {
+		lsm303agr_mag_operating_mode_set(&dev_ctx_mg,
+				LSM303AGR_CONTINUOUS_MODE);
+		lsm303agr_mag_data_rate_set(&dev_ctx_mg, LSM303AGR_MG_ODR_10Hz);
+
 		switch (esloSettings[Set_AxyMode]) {
 		case 1:
 			lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_1Hz);
+			Util_rescheduleClock(&clkESLOAxy, 1000);
 			break;
 		case 2:
 			lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_10Hz);
+			Util_rescheduleClock(&clkESLOAxy, 100);
 			break;
 		default:
 			break;
 		}
+		Util_startClock(&clkESLOAxy);
+
 		enableInterrupt = true;
 		if (actOnInterrupt) {
 			xlInterrupt(enableInterrupt);
 		}
 	} else {
+		Util_stopClock(&clkESLOAxy);
 		enableInterrupt = false;
 		xlInterrupt(enableInterrupt); // always turn off before powering down
 		lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_POWER_DOWN);
+		lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_POWER_DOWN);
 	}
 	return enableInterrupt;
+}
+
+static void ESLO_startup(void) {
+	GPIO_init();
+	SPI_init();
+	I2C_init();
+	ADC_init();
+	NVS_init();
+	GPIO_write(LED_0, 0x01);
+
+	// init Settings
+	esloSettings[Set_EEG1] = 0x00; // only one channel at init
+	esloSettings[Set_TxPower] = 0x00; // 1 = Tx0, assumes default in SysConfig
+	esloSettings[Set_AxyMode] = 0x00;
+	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
+			esloSettings);
+
+	/* NVS */
+	NVS_Params_init(&nvsParams);
+	esloRecoverSession();
+
+	/* NAND */
+	NAND_Init(CONFIG_SPI, _NAND_CS);
+	ret = FlashReadDeviceIdentification(&devId);
+
+	/* ADS129X - Defaults in SysConfig */
+	bool enableEEGInterrupt = updateEEGFromSettings(false); // do not turn on yet
+
+	/* AXY - init no matter what */
+	AXY_Init(CONFIG_I2C_AXY);
+	dev_ctx_xl.write_reg = platform_i2c_write;
+	dev_ctx_xl.read_reg = platform_i2c_read;
+	dev_ctx_xl.handle = (void*) LSM303AGR_I2C_ADD_XL;
+	dev_ctx_mg.write_reg = platform_i2c_write;
+	dev_ctx_mg.read_reg = platform_i2c_read;
+	dev_ctx_mg.handle = (void*) LSM303AGR_I2C_ADD_MG;
+
+	lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_ENABLE);
+
+	reg.byte = 0;
+	lsm303agr_xl_device_id_get(&dev_ctx_xl, &reg.byte);
+	if (reg.byte != LSM303AGR_ID_XL)
+		while (1)
+			;
+
+	lsm303agr_xl_block_data_update_set(&dev_ctx_xl, PROPERTY_ENABLE);
+	lsm303agr_xl_full_scale_set(&dev_ctx_xl, LSM303AGR_2g);
+	lsm303agr_xl_operating_mode_set(&dev_ctx_xl, LSM303AGR_HR_12bit);
+//	lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_10Hz); // !! Doesn't matter, updateXlFromSettings() updates them
+
+	reg.byte = 0;
+	lsm303agr_mag_device_id_get(&dev_ctx_mg, &reg.byte);
+	if (reg.byte != LSM303AGR_ID_MG)
+		while (1)
+			; /*manage here device not found */
+
+	/* Restore default configuration for magnetometer */
+	lsm303agr_mag_reset_set(&dev_ctx_mg, PROPERTY_ENABLE);
+	do {
+		lsm303agr_mag_reset_get(&dev_ctx_mg, &reg.byte);
+	} while (reg.byte);
+
+	lsm303agr_mag_block_data_update_set(&dev_ctx_mg, PROPERTY_ENABLE);
+//	lsm303agr_mag_data_rate_set(&dev_ctx_mg, LSM303AGR_MG_ODR_10Hz); // !! Doesn't matter, updateXlFromSettings() updates them
+	lsm303agr_mag_set_rst_mode_set(&dev_ctx_mg,
+			LSM303AGR_SENS_OFF_CANC_EVERY_ODR);
+	lsm303agr_mag_offset_temp_comp_set(&dev_ctx_mg, PROPERTY_ENABLE);
+	lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_ENABLE);
+//	lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_CONTINUOUS_MODE); // LSM303AGR_POWER_DOWN, LSM303AGR_CONTINUOUS_MODE
+
+	ADC_Params_init(&adcParams_vBatt);
+	adc_vBatt = ADC_open(R_VBATT, &adcParams_vBatt);
+	if (adc_vBatt == NULL) {
+		while (1) {
+			// !! what happens here?
+		}
+	}
+	ADC_Params_init(&adcParams_therm);
+	adc_therm = ADC_open(THERM, &adcParams_therm);
+	if (adc_therm == NULL) {
+		while (1) {
+			// !! what happens here?
+		}
+	}
+
+	updateXlFromSettings(true); // turn on interrupt here
+	eegInterrupt(enableEEGInterrupt); // turn on now
+	Util_startClock(&clkESLOPeriodic);
+	GPIO_write(LED_0, 0x00);
 }
 
 /*********************************************************************
@@ -1084,6 +1103,9 @@ static void SimplePeripheral_init(void) {
 
 	Util_constructClock(&clkESLOPeriodic, SimplePeripheral_clockHandler,
 	ES_PERIODIC_EVT_PERIOD, 0, false, (UArg) &argESLOPeriodic);
+
+	Util_constructClock(&clkESLOAxy, SimplePeripheral_clockHandler,
+	ES_AXY_PERIOD, 0, false, (UArg) &argESLOAxy);
 
 // Set the Device Name characteristic in the GAP GATT Service
 // For more information, see the section in the User's Guide:
@@ -1409,6 +1431,9 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 		break;
 	case ES_PERIODIC_EVT:
 		ESLO_performPeriodicTask();
+		break;
+	case ES_AXY_EVT:
+		xlDataHandler(); // already in queue, go get data
 		break;
 	case SP_READ_RPA_EVT:
 		SimplePeripheral_updateRPA();
@@ -1877,6 +1902,11 @@ static void SimplePeripheral_clockHandler(UArg arg) {
 		Util_startClock(&clkESLOPeriodic);
 		// Post event to wake up the application
 		SimplePeripheral_enqueueMsg(ES_PERIODIC_EVT, NULL);
+	} else if (pData->event == ES_AXY_EVT) {
+		// Start the next period
+		Util_startClock(&clkESLOAxy);
+		// Post event to wake up the application
+		SimplePeripheral_enqueueMsg(ES_AXY_EVT, NULL);
 	} else if (pData->event == SP_READ_RPA_EVT) {
 		// Start the next period
 		Util_startClock(&clkRpaRead);
