@@ -385,6 +385,9 @@ uint32_t esloVersion = 0x00000000;
 uint32_t axyCount = 0;
 uint32_t eegCount = 0;
 ReturnType ret; // NAND
+// increments of 0.625ms
+uint32_t adv_shortDuration = 1600; // 1s
+uint32_t adv_longDuration = 96000 / 4; // 60s
 
 #define PACKET_SZ_EEG SIMPLEPROFILE_CHAR4_LEN / 4
 int32_t eeg1Buffer[PACKET_SZ_EEG];
@@ -559,8 +562,9 @@ static void readBatt() {
 static void esloSleep() {
 	// right now zeros and sleep mode are same
 	uint8_t esloSettingsNew[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
-	// change settings for sleep mode
+	// carry over these settings
 	esloSettingsNew[Set_TxPower] = esloSettings[Set_TxPower];
+	esloSettingsNew[Set_AdvLong] = esloSettings[Set_AdvLong];
 	// overwrite esloSettings and force sleep mode to take effect
 	mapEsloSettings(esloSettingsNew);
 
@@ -570,8 +574,38 @@ static void esloSleep() {
 	GPIO_write(LED_0, setGPIO);
 }
 
+// note that ~Rec = sleep mode and anything in settings that needs to carry over has to be set in esloSleep()
+// since it by default overwrites esloSettings with all 0x00 (see Set_TxPower and Set_AdvLong)
 static void mapEsloSettings(uint8_t *esloSettingsNew) {
 	eslo_dt eslo;
+
+	// !! do both advertisements need to be synced, or could extended adv always be long?
+	if (esloSettings[Set_AdvLong] != *(esloSettingsNew + Set_AdvLong)) {
+		esloSettings[Set_AdvLong] = *(esloSettingsNew + Set_AdvLong);
+		GapAdv_disable(advHandleLongRange);
+		GapAdv_disable(advHandleLegacy);
+		if (esloSettings[Set_AdvLong] > 0x00) { // long
+			GapAdv_setParam(advHandleLongRange,
+					GAP_ADV_PARAM_PRIMARY_INTERVAL_MIN, &adv_longDuration);
+			GapAdv_setParam(advHandleLongRange,
+					GAP_ADV_PARAM_PRIMARY_INTERVAL_MAX, &adv_longDuration);
+			GapAdv_setParam(advHandleLegacy, GAP_ADV_PARAM_PRIMARY_INTERVAL_MIN,
+					&adv_longDuration);
+			GapAdv_setParam(advHandleLegacy, GAP_ADV_PARAM_PRIMARY_INTERVAL_MAX,
+					&adv_longDuration);
+		} else { // short
+			GapAdv_setParam(advHandleLongRange,
+					GAP_ADV_PARAM_PRIMARY_INTERVAL_MIN, &adv_shortDuration);
+			GapAdv_setParam(advHandleLongRange,
+					GAP_ADV_PARAM_PRIMARY_INTERVAL_MAX, &adv_shortDuration);
+			GapAdv_setParam(advHandleLegacy, GAP_ADV_PARAM_PRIMARY_INTERVAL_MIN,
+					&adv_shortDuration);
+			GapAdv_setParam(advHandleLegacy, GAP_ADV_PARAM_PRIMARY_INTERVAL_MAX,
+					&adv_shortDuration);
+		}
+		GapAdv_enable(advHandleLongRange, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
+		GapAdv_enable(advHandleLegacy, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
+	}
 
 	// order: end with the things that have interrupts
 	if (esloSettingsNew[Set_ExportData] > 0x00) {
@@ -860,7 +894,6 @@ void eegDataReady(uint_least8_t index) {
 void axyXlReady(uint_least8_t index) {
 	SimplePeripheral_enqueueMsg(ES_XL_NOTIF, NULL);
 }
-
 
 static void eegInterrupt(bool enableInterrupt) {
 	if (enableInterrupt) {
