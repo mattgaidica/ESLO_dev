@@ -387,7 +387,7 @@ uint32_t eegCount = 0;
 ReturnType ret; // NAND
 // increments of 0.625ms
 uint32_t adv_shortDuration = 1600; // 1s
-uint32_t adv_longDuration = 96000 / 4; // 60s
+uint32_t adv_longDuration = 16000 / 4; // 60s
 
 #define PACKET_SZ_EEG SIMPLEPROFILE_CHAR4_LEN / 4
 int32_t eeg1Buffer[PACKET_SZ_EEG];
