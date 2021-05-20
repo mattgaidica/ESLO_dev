@@ -1885,9 +1885,6 @@ static void ESLO_performPeriodicTask() {
 	// test multiple times in case of outlier?
 	if (vbatt_uV < V_DROPOUT) {
 		esloSleep(); // good night
-		// write stream until end of page
-		esloFillNAND();
-		esloAddr = FLASH_SIZE; // never write again
 		Util_stopClock(&clkESLOPeriodic); // never come back
 	}
 }
