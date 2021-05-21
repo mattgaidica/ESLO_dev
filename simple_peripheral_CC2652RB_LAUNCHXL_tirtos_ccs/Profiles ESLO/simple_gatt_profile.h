@@ -83,8 +83,8 @@ extern "C"
 #define SIMPLEPROFILE_SERVICE               0x00000001
 
 // Length of Characteristic in bytes
-#define SIMPLEPROFILE_CHAR1_LEN			  4		// LED_0-3
-#define SIMPLEPROFILE_CHAR2_LEN			  4		// vBatt
+#define SIMPLEPROFILE_CHAR1_LEN			  2		// LED_0-3
+#define SIMPLEPROFILE_CHAR2_LEN			  16	// vBatt, low battery status, esloAddr
 #define SIMPLEPROFILE_CHAR3_LEN			  16	// settings
 #define SIMPLEPROFILE_CHAR4_LEN			  248 	// 62 int32, EEG (eslo packets)
 #define SIMPLEPROFILE_CHAR5_LEN           16	// !! was 128 AXY (eslo packets)

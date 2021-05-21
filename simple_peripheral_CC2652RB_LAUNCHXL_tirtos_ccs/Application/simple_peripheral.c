@@ -66,9 +66,9 @@
  * CONSTANTS
  */
 // How often to perform periodic event (in ms)
-#define SP_PERIODIC_EVT_PERIOD               5000
+#define SP_PERIODIC_EVT_PERIOD               3000
 #define ES_PERIODIC_EVT_PERIOD				 60000
-#define ES_AXY_PERIOD				 1000
+#define ES_AXY_PERIOD				 		 1000
 
 // Task configuration
 #define SP_TASK_PRIORITY                     1
@@ -369,6 +369,7 @@ uint8_t esloSettingsSleep[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
 
 bool isPaired = false;
 
+uint32_t lowVoltage; // acts as boolean, use int32 to unwrap easily in app
 uint32_t vbatt_uV;
 ADC_Handle adc_vBatt;
 ADC_Params adcParams_vBatt;
@@ -527,7 +528,6 @@ static void exportDataBLE() {
 			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
 			SIMPLEPROFILE_CHAR4_LEN,
 					readBuf + (iBLE * SIMPLEPROFILE_CHAR4_LEN));
-			Task_sleep(1000); // throttle
 		}
 
 		esloAddr += 0x00001000; // +1 page
@@ -1230,9 +1230,7 @@ static void SimplePeripheral_init(void) {
 
 // Initialize array to store connection handle and RSSI values
 	SimplePeripheral_initPHYRSSIArray();
-
 	ESLO_startup();
-
 }
 
 /*********************************************************************
@@ -1854,12 +1852,21 @@ static void SimplePeripheral_processCharValueChangeEvt(uint8_t paramId) {
  * @return  None.
  */
 static void SimplePeripheral_notifyVitals(void) {
+	uint8_t *pValue = ICall_malloc(SIMPLEPROFILE_CHAR2_LEN);
 	readBatt();
-	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR2, SIMPLEPROFILE_CHAR2_LEN,
-			&vbatt_uV);
 	readTherm();
 	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6, SIMPLEPROFILE_CHAR6_LEN,
 			&temp_uC);
+
+	if (lowVoltage == 0 || vbatt_uV < lowVoltage) {
+		lowVoltage = vbatt_uV;
+	}
+	ESLO_compileVitals(&vbatt_uV, &lowVoltage, &esloAddr, pValue);
+	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR2, SIMPLEPROFILE_CHAR2_LEN,
+			pValue);
+	if (ret) {
+		ICall_free(pValue);
+	}
 }
 
 static void ESLO_performPeriodicTask() {
@@ -1886,6 +1893,8 @@ static void ESLO_performPeriodicTask() {
 	if (vbatt_uV < V_DROPOUT) {
 		esloSleep(); // good night
 		Util_stopClock(&clkESLOPeriodic); // never come back
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+		SIMPLEPROFILE_CHAR5_LEN, mgZBuffer);
 	}
 }
 
