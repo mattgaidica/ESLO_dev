@@ -485,17 +485,17 @@ static void esloSetVersion() {
 	ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
 }
 
-static void esloFillNAND() {
-	// !! readBatt does increase power here
-	// consider writing 0xFFFFFFFF to identify in decoder as end
-	eslo_dt eslo;
-	while (ADDRESS_2_COL(esloAddr) != 0) {
-		readBatt();
-		eslo.type = Type_BatteryVoltage;
-		eslo.data = vbatt_uV;
-		ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
-	}
-}
+//static void esloFillNAND() {
+//	// !! readBatt does increase power here
+//	// consider writing 0xFFFFFFFF to identify in decoder as end
+//	eslo_dt eslo;
+//	while (ADDRESS_2_COL(esloAddr) != 0) {
+//		readBatt();
+//		eslo.type = Type_BatteryVoltage;
+//		eslo.data = vbatt_uV;
+//		ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
+//	}
+//}
 
 static void exportDataBLE() {
 	uint32_t exportAddr = esloExportBlock * 128;
