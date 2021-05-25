@@ -62,15 +62,16 @@ extern "C"
  */
 #ifndef USE_GATT_BUILDER
 // Profile Parameters
-#define SIMPLEPROFILE_CHAR1                   0  // LED_0
-#define SIMPLEPROFILE_CHAR2                   1  // vBatt/vitals
+#define SIMPLEPROFILE_CHAR1                   0  // LEDs
+#define SIMPLEPROFILE_CHAR2                   1  // Vitals
 #define SIMPLEPROFILE_CHAR3                   2  // Settings
 #define SIMPLEPROFILE_CHAR4                   3  // EEG
 #define SIMPLEPROFILE_CHAR5                   4  // AXY
-#define SIMPLEPROFILE_CHAR6                   5  // therm
+#define SIMPLEPROFILE_CHAR6                   5  // Addr
+#define SIMPLEPROFILE_CHAR7                   6  // Memory
 
 // Simple Profile Service UUID
-#define SIMPLEPROFILE_SERV_UUID               0xE000
+#define SIMPLEPROFILE_SERV_UUID             0xE000
 
 #define SIMPLEPROFILE_CHAR1_UUID            0xE001
 #define SIMPLEPROFILE_CHAR2_UUID            0xE002
@@ -78,17 +79,19 @@ extern "C"
 #define SIMPLEPROFILE_CHAR4_UUID            0xE004
 #define SIMPLEPROFILE_CHAR5_UUID            0xE005
 #define SIMPLEPROFILE_CHAR6_UUID            0xE006
+#define SIMPLEPROFILE_CHAR7_UUID            0xE007
 
 // Simple Keys Profile Services bit fields
 #define SIMPLEPROFILE_SERVICE               0x00000001
 
 // Length of Characteristic in bytes
-#define SIMPLEPROFILE_CHAR1_LEN			  2		// LED_0-3
-#define SIMPLEPROFILE_CHAR2_LEN			  16	// vBatt, low battery status, esloAddr
+#define SIMPLEPROFILE_CHAR1_LEN			  1		// LED_0-3
+#define SIMPLEPROFILE_CHAR2_LEN			  16	// vBatt, low battery status, therm, esloAddr
 #define SIMPLEPROFILE_CHAR3_LEN			  16	// settings
 #define SIMPLEPROFILE_CHAR4_LEN			  248 	// 62 int32, EEG (eslo packets)
 #define SIMPLEPROFILE_CHAR5_LEN           16	// !! was 128 AXY (eslo packets)
-#define SIMPLEPROFILE_CHAR6_LEN			  4		// therm
+#define SIMPLEPROFILE_CHAR6_LEN			  4		// Addr
+#define SIMPLEPROFILE_CHAR7_LEN			  128	// Memory
 
 /*********************************************************************
  * TYPEDEFS

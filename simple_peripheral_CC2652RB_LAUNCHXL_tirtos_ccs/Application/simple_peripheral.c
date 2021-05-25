@@ -417,10 +417,10 @@ lsm303agr_reg_t reg;
 /* NAND Vars */
 uint8_t ret;
 uint16_t devId;
-uint8_t esloBuffer[PAGE_DATA_SIZE];
+uint8_t esloBuffer[PAGE_DATA_SIZE]; // used for writing
 uint8_t readBuf[PAGE_SIZE]; // 2176, always allocate full page size
 uint32_t packet;
-uAddrType esloAddr;
+uAddrType esloAddr, esloExportBlock;
 
 /* ADS129X Vars */
 int32_t status;
@@ -498,44 +498,20 @@ static void esloFillNAND() {
 }
 
 static void exportDataBLE() {
-	// uint32_t iBlock = 0; // debug only
-	uint8_t iPage, iBLE;
-	uint32_t esloCurVersion = 0x00000000;
-	uint8_t doLoop = 1;
+	uint32_t exportAddr = esloExportBlock * 128;
+	uint8_t modBlock = esloExportBlock % 16;
 
-	esloFillNAND(); // force finish page
-
-	esloAddr = 0; // from start
-	// could find last block first, then for loop
-	while (doLoop == 1) {
-		iPage = ADDRESS_2_PAGE(esloAddr);
-		// iBlock = ADDRESS_2_BLOCK(esloAddr); // debug only
-		ret = FlashPageRead(esloAddr, readBuf); // read whole page
-
-		if (iPage == 0) { // where version should be
-			memcpy(&esloCurVersion, readBuf, 0x03); // do not include ESLO header
-			if (readBuf[3] == 0x0F && esloVersion != esloCurVersion) {
-				break;
-			}
+	if (exportAddr < esloAddr) {
+		if (modBlock == 0) {
+			ret = FlashPageRead(exportAddr, readBuf); // read whole page
 		}
-		if (readBuf[3] == 0xFF) { // indicates wiped page
-			break;
-		}
-
-		// loop 16 times at 128 bytes each = 2048 total
-		for (iBLE = 0; iBLE < PAGE_DATA_SIZE / SIMPLEPROFILE_CHAR4_LEN;
-				iBLE++) {
-			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
-			SIMPLEPROFILE_CHAR4_LEN,
-					readBuf + (iBLE * SIMPLEPROFILE_CHAR4_LEN));
-		}
-
-		esloAddr += 0x00001000; // +1 page
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR7,
+		SIMPLEPROFILE_CHAR7_LEN, readBuf + (modBlock * 128));
+	} else {
+		// notify here, value does not matter right now
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6,
+		SIMPLEPROFILE_CHAR6_LEN, &exportAddr);
 	}
-	// !!leave esloAddr at last page to append data? or reset?
-	esloSettings[Set_ExportData] = 0x00; // done
-	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
-			esloSettings);
 }
 
 static void readTherm() {
@@ -560,15 +536,15 @@ static void readBatt() {
 // sleep should only be called internally
 // ...mapEsloSettings() is called when central pushes
 static void esloSleep() {
-	// right now zeros and sleep mode are same
+// right now zeros and sleep mode are same
 	uint8_t esloSettingsNew[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
-	// carry over these settings
+// carry over these settings
 	esloSettingsNew[Set_TxPower] = esloSettings[Set_TxPower];
 	esloSettingsNew[Set_AdvLong] = esloSettings[Set_AdvLong];
-	// overwrite esloSettings and force sleep mode to take effect
+// overwrite esloSettings and force sleep mode to take effect
 	mapEsloSettings(esloSettingsNew);
 
-	// not sure of state right now, so just turn off LED
+// not sure of state right now, so just turn off LED
 	uint8_t setGPIO = 0x00;
 	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR1, sizeof(uint8_t), &setGPIO); // only sets parameter, does not cue LED change
 	GPIO_write(LED_0, setGPIO);
@@ -579,7 +555,7 @@ static void esloSleep() {
 static void mapEsloSettings(uint8_t *esloSettingsNew) {
 	eslo_dt eslo;
 
-	// !! do both advertisements need to be synced, or could extended adv always be long?
+// !! do both advertisements need to be synced, or could extended adv always be long?
 	if (esloSettings[Set_AdvLong] != *(esloSettingsNew + Set_AdvLong)) {
 		esloSettings[Set_AdvLong] = *(esloSettingsNew + Set_AdvLong);
 		GapAdv_disable(advHandleLongRange);
@@ -607,25 +583,25 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 		GapAdv_enable(advHandleLegacy, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
 	}
 
-	// order: end with the things that have interrupts
-	if (esloSettingsNew[Set_ExportData] > 0x00) {
-		// force turn off AXY and EEG
-		esloSettingsNew[Set_SleepWake] = 0x00;
-		esloSettingsNew[Set_EEG1] = 0x00;
-		esloSettingsNew[Set_EEG2] = 0x00;
-		esloSettingsNew[Set_EEG3] = 0x00;
-		esloSettingsNew[Set_EEG4] = 0x00;
-		esloSettingsNew[Set_AxyMode] = 0x00;
-	}
-	esloSettings[Set_ExportData] = esloSettingsNew[Set_ExportData];
+// order: end with the things that have interrupts
+//	if (esloSettingsNew[Set_ExportData] > 0x00) {
+//		// force turn off AXY and EEG by overwriting new settings
+//		esloSettingsNew[Set_SleepWake] = 0x00;
+//		esloSettingsNew[Set_EEG1] = 0x00;
+//		esloSettingsNew[Set_EEG2] = 0x00;
+//		esloSettingsNew[Set_EEG3] = 0x00;
+//		esloSettingsNew[Set_EEG4] = 0x00;
+//		esloSettingsNew[Set_AxyMode] = 0x00;
+//	}
+//	esloSettings[Set_ExportData] = esloSettingsNew[Set_ExportData];
 
-	// resetVersion only comes from iOS, never maintains value (one and done)
+// resetVersion only comes from iOS, never maintains value (one and done)
 	if (esloSettingsNew[Set_ResetVersion] > 0x00) {
 		esloResetVersion();
 	}
 
-	// this needs some logic: we will never write abstime=0 here
-	// but cond can occur when the settings are mapped from wakeup
+// this needs some logic: we will never write abstime=0 here
+// but cond can occur when the settings are mapped from wakeup
 	if (esloSettingsNew[Set_Time1] | esloSettingsNew[Set_Time2]
 			| esloSettingsNew[Set_Time3] | esloSettingsNew[Set_Time4] > 0x00) {
 		memcpy(&absoluteTime, esloSettingsNew + Set_Time1, 4);
@@ -674,17 +650,17 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 		updateEEGFromSettings(true);
 	}
 
-	// set and notify iOS, since export data now overrides some settings
+// set and notify iOS, since export data now overrides some settings
 	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
 			esloSettings);
 
-	// updates esloAddr so data will export to end on power cycle if user pushed before powering down
-	// !! could consider doing this every second if data is recording?
+// updates esloAddr so data will export to end on power cycle if user pushed before powering down
+// !! could consider doing this every second if data is recording?
 	esloUpdateNVS();
 
-	if (esloSettingsNew[Set_ExportData] > 0x00) {
-		SimplePeripheral_enqueueMsg(ES_EXPORT_DATA, NULL);
-	}
+//	if (esloSettingsNew[Set_ExportData] > 0x00) {
+//		SimplePeripheral_enqueueMsg(ES_EXPORT_DATA, NULL);
+//	}
 }
 
 static uint8_t USE_EEG(uint8_t *esloSettings) {
@@ -989,7 +965,7 @@ static void ESLO_startup(void) {
 	NVS_init();
 	GPIO_write(LED_0, 0x01);
 
-	// init Settings
+// init Settings
 	esloSettings[Set_EEG1] = 0x00; // only one channel at init
 	esloSettings[Set_TxPower] = 0x00; // 1 = Tx0, assumes default in SysConfig
 	esloSettings[Set_AxyMode] = 0x00;
@@ -1160,7 +1136,7 @@ static void SimplePeripheral_init(void) {
 // Initialize GATT attributes
 	GGS_AddService(GATT_ALL_SERVICES);// GAP GATT Service
 	GATTServApp_AddService(GATT_ALL_SERVICES);   // GATT Service
-	DevInfo_AddService();                        // Device Information Service
+	DevInfo_AddService();                      // Device Information Service
 	SimpleProfile_AddService(GATT_ALL_SERVICES); // Simple GATT Profile
 
 // Setup the SimpleProfile Characteristic Values
@@ -1173,19 +1149,22 @@ static void SimplePeripheral_init(void) {
 		uint8_t charValue4[SIMPLEPROFILE_CHAR4_LEN] = { 0 };
 		uint8_t charValue5[SIMPLEPROFILE_CHAR5_LEN] = { 0 };
 		uint8_t charValue6[SIMPLEPROFILE_CHAR6_LEN] = { 0 };
+		uint8_t charValue7[SIMPLEPROFILE_CHAR7_LEN] = { 0 };
 
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR1, SIMPLEPROFILE_CHAR1_LEN,
-				charValue1);
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR2, SIMPLEPROFILE_CHAR2_LEN,
-				charValue2);
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR1,
+		SIMPLEPROFILE_CHAR1_LEN, charValue1);
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR2,
+		SIMPLEPROFILE_CHAR2_LEN, charValue2);
 //		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
 //				charValue3);
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4, SIMPLEPROFILE_CHAR4_LEN,
-				charValue4);
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5, SIMPLEPROFILE_CHAR5_LEN,
-				charValue5);
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6, SIMPLEPROFILE_CHAR6_LEN,
-				charValue6);
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR4,
+		SIMPLEPROFILE_CHAR4_LEN, charValue4);
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+		SIMPLEPROFILE_CHAR5_LEN, charValue5);
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6,
+		SIMPLEPROFILE_CHAR6_LEN, charValue6);
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR7,
+		SIMPLEPROFILE_CHAR7_LEN, charValue7);
 	}
 
 // Register callback with SimpleGATTprofile
@@ -1634,6 +1613,7 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR1, sizeof(uint8_t),
 					&setGPIO); // only sets parameter, does not cue LED change
 			GPIO_write(LED_0, setGPIO);
+
 			// recover old settings
 			mapEsloSettings(esloSettingsSleep);
 
@@ -1812,6 +1792,9 @@ static void SimplePeripheral_processCharValueChangeEvt(uint8_t paramId) {
 	case SIMPLEPROFILE_CHAR3:
 		len = SIMPLEPROFILE_CHAR3_LEN;
 		break;
+	case SIMPLEPROFILE_CHAR6:
+		len = SIMPLEPROFILE_CHAR6_LEN;
+		break;
 	default:
 		break;
 	}
@@ -1824,10 +1807,14 @@ static void SimplePeripheral_processCharValueChangeEvt(uint8_t paramId) {
 		ret = SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR1, pValue);
 		GPIO_write(LED_0, pValue[0]);
 		break;
-
 	case SIMPLEPROFILE_CHAR3:
 		ret = SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR3, pValue);
 		mapEsloSettings(pValue);
+		break;
+	case SIMPLEPROFILE_CHAR6:
+		ret = SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR6, pValue);
+		memcpy(&esloExportBlock, pValue, sizeof(uint32_t));
+		SimplePeripheral_enqueueMsg(ES_EXPORT_DATA, NULL);
 		break;
 	default:
 		// should not reach here!
@@ -1855,13 +1842,11 @@ static void SimplePeripheral_notifyVitals(void) {
 	uint8_t *pValue = ICall_malloc(SIMPLEPROFILE_CHAR2_LEN);
 	readBatt();
 	readTherm();
-	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6, SIMPLEPROFILE_CHAR6_LEN,
-			&temp_uC);
 
 	if (lowVoltage == 0 || vbatt_uV < lowVoltage) {
 		lowVoltage = vbatt_uV;
 	}
-	ESLO_compileVitals(&vbatt_uV, &lowVoltage, &esloAddr, pValue);
+	ESLO_compileVitals(&vbatt_uV, &lowVoltage, &temp_uC, &esloAddr, pValue);
 	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR2, SIMPLEPROFILE_CHAR2_LEN,
 			pValue);
 	if (ret) {
@@ -1889,12 +1874,11 @@ static void ESLO_performPeriodicTask() {
 
 	esloUpdateNVS(); // save esloAddress to recover session
 
-	// test multiple times in case of outlier?
-	if (vbatt_uV < V_DROPOUT) {
+// test multiple times in case of outlier?
+	if (vbatt_uV < V_DROPOUT || esloAddr >= FLASH_SIZE) {
 		esloSleep(); // good night
-		Util_stopClock(&clkESLOPeriodic); // never come back
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
-		SIMPLEPROFILE_CHAR5_LEN, mgZBuffer);
+		Util_stopClock(&clkESLOPeriodic); // never come back unless user initiates it
+		// set parameter to notify condition?
 	}
 }
 
