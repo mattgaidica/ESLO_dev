@@ -344,7 +344,6 @@ static void mapEsloSettings(uint8_t *esloSettingsNew);
 static void ESLO_performPeriodicTask();
 
 static void esloSetVersion();
-static void esloFillNAND();
 static void exportDataBLE();
 static void readBatt();
 static void readTherm();
@@ -484,18 +483,6 @@ static void esloSetVersion() {
 	eslo.data = esloVersion;
 	ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
 }
-
-//static void esloFillNAND() {
-//	// !! readBatt does increase power here
-//	// consider writing 0xFFFFFFFF to identify in decoder as end
-//	eslo_dt eslo;
-//	while (ADDRESS_2_COL(esloAddr) != 0) {
-//		readBatt();
-//		eslo.type = Type_BatteryVoltage;
-//		eslo.data = vbatt_uV;
-//		ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
-//	}
-//}
 
 static void exportDataBLE() {
 	uint32_t exportAddr = esloExportBlock * 128;
