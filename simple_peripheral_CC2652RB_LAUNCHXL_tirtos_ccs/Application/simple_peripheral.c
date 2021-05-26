@@ -484,18 +484,39 @@ static void esloSetVersion() {
 	ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
 }
 
+//static void exportDataBLE() {
+//	uint8_t modBlock = esloExportBlock % 16;
+//	uint32_t exportAddr = 0;
+//
+//	if (modBlock == 0 && esloExportBlock > 0) {
+//		exportAddr = (esloExportBlock / 16) * 0x1000;
+//	}
+//
+//	if (exportAddr < esloAddr) {
+//		if (modBlock == 0) {
+//			ret = FlashPageRead(exportAddr, readBuf); // read whole page
+//		}
+//		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR7,
+//		SIMPLEPROFILE_CHAR7_LEN, readBuf + (modBlock * 128));
+//	} else {
+//		// notify here, value does not matter right now
+//		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6,
+//		SIMPLEPROFILE_CHAR6_LEN, &exportAddr);
+//	}
+//}
+
 static void exportDataBLE() {
-	uint32_t exportAddr = esloExportBlock * 128;
-	uint8_t modBlock = esloExportBlock % 16;
+//	uint8_t modBlock = esloExportBlock % 16;
+	uint8_t ii;
+	uint32_t exportAddr = esloExportBlock * 0x1000;
 
 	if (exportAddr < esloAddr) {
-		if (modBlock == 0) {
-			ret = FlashPageRead(exportAddr, readBuf); // read whole page
+		ret = FlashPageRead(exportAddr, readBuf); // read whole page
+		for (ii = 0; ii < 16; ii++) {
+			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR7,
+			SIMPLEPROFILE_CHAR7_LEN, readBuf + (ii * 128));
 		}
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR7,
-		SIMPLEPROFILE_CHAR7_LEN, readBuf + (modBlock * 128));
 	} else {
-		// notify here, value does not matter right now
 		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6,
 		SIMPLEPROFILE_CHAR6_LEN, &exportAddr);
 	}
