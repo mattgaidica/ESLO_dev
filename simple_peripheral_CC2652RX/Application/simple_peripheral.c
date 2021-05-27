@@ -50,7 +50,8 @@
 #include <Serialize.h>
 
 /* Axy */
-#include <>
+#include <lsm6dsox_CCXXXX.h>
+#include <lsm6dsox_reg.h>
 
 /*********************************************************************
  * MACROS
@@ -401,7 +402,7 @@ uint8_t iXL = 0;
 uint8_t iMG = 0;
 
 /* AXY Vars */
-//stmdev_ctx_t dev_ctx_xl;
+stmdev_ctx_t dev_ctx_xl;
 //stmdev_ctx_t dev_ctx_mg;
 //static axis3bit16_t data_raw_acceleration;
 //static axis3bit16_t data_raw_magnetic;
@@ -780,12 +781,12 @@ static void eegDataHandler(void) {
 
 // !! handle ret values?
 static void xlDataHandler(void) {
-	eslo_dt eslo_xlx;
-	eslo_dt eslo_xly;
-	eslo_dt eslo_xlz;
-	eslo_dt eslo_mgx;
-	eslo_dt eslo_mgy;
-	eslo_dt eslo_mgz;
+//	eslo_dt eslo_xlx;
+//	eslo_dt eslo_xly;
+//	eslo_dt eslo_xlz;
+//	eslo_dt eslo_mgx;
+//	eslo_dt eslo_mgy;
+//	eslo_dt eslo_mgz;
 
 //	if (USE_AXY(esloSettings) == ESLO_MODULE_ON) { // double check
 //		// XL
@@ -990,10 +991,14 @@ static void ESLO_startup(void) {
 	bool enableEEGInterrupt = updateEEGFromSettings(false); // do not turn on yet
 
 	/* AXY - init no matter what */
-//	AXY_Init(CONFIG_I2C_AXY);
-//	dev_ctx_xl.write_reg = platform_i2c_write;
-//	dev_ctx_xl.read_reg = platform_i2c_read;
-//	dev_ctx_xl.handle = (void*) LSM303AGR_I2C_ADD_XL;
+	AXY_Init(CONFIG_SPI, _NAND_CS, AXY_CS);
+	dev_ctx_xl.write_reg = write_reg;
+	dev_ctx_xl.read_reg = read_reg;
+	dev_ctx_xl.handle = (void*) spiAXY;
+	uint8_t axy_whoami;
+	while(1) {
+		lsm6dsox_device_id_get(&dev_ctx_xl, &axy_whoami);
+	}
 //	dev_ctx_mg.write_reg = platform_i2c_write;
 //	dev_ctx_mg.read_reg = platform_i2c_read;
 //	dev_ctx_mg.handle = (void*) LSM303AGR_I2C_ADD_MG;
