@@ -8,10 +8,11 @@
 #include <string.h>
 
 /* Driver Header files */
-#include <SPI_NAND.h>
 #include <ESLO.h>
+#include <SPI_NAND.h>
 #include <Serialize.h>
 
+#include <ti/drivers/NVS.h>
 #include <ti/drivers/GPIO.h>
 #include <ti/drivers/SPI.h>
 
@@ -27,6 +28,10 @@ uint32_t i;
 
 // !! erase memory.dat before running
 void* mainThread(void *arg0) {
+	uint32_t tempSignature;
+	uint32_t tempVersion;
+	uAddrType tempAddress;
+
 	GPIO_init();
 	SPI_init();
 
@@ -36,34 +41,26 @@ void* mainThread(void *arg0) {
 	NAND_Init(CONFIG_SPI, _NAND_CS);
 	ret = FlashReadDeviceIdentification(&devId); // 0x2C25
 
-	uint32_t iBlock = 0;
-	uint8_t iPage;
-	uint32_t esloVersion;
-	uint32_t esloCurVersion;
-	uint8_t doLoop = 1;
+	nvsHandle = NVS_open(ESLO_NVS_0, &nvsParams);
+
+	if (nvsHandle != NULL) {
+		NVS_getAttrs(nvsHandle, &regionAttrs);
+		NVS_read(nvsHandle, 0, (void*) nvsBuffer, sizeof(nvsBuffer));
+		// compare eslo sig
+		ESLO_decodeNVS(nvsBuffer, &tempSignature, &tempVersion, &tempAddress);
+	}
+
 
 	// could find last block first, then for loop
-	while (doLoop == 1) {
-		iPage = ADDRESS_2_PAGE(esloAddr);
-		iBlock = ADDRESS_2_BLOCK(esloAddr);
-		ret = FlashPageRead(esloAddr, readBuf); // read whole page
+	while (1) {
+		ret = FlashPageRead(esloAddr, readBuf);
 
-		if (iPage == 0) {
-			if (iBlock == 0) {
-				memcpy(&esloVersion, readBuf, 4); // first instance
-			} else {
-				memcpy(&esloCurVersion, readBuf, 4); // subsequent instances
-				if (readBuf[3] == 0xFF) {
-					doLoop = 0;
-				} else {
-					if (readBuf[3] == 0x0F && esloVersion != esloCurVersion) {
-						doLoop = 0;
-					}
-				}
-			}
-		}
 		GPIO_toggle(LED_0); // GEL breakpoint
 		esloAddr += 0x00001000; // +1 page
+
+		if (esloAddr > tempAddress | esloAddr > FLASH_SIZE) {
+			break;
+		}
 	}
 
 	GPIO_write(LED_0, CONFIG_GPIO_LED_OFF);

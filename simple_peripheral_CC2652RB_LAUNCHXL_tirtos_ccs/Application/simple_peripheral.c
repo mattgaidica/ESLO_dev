@@ -15,6 +15,7 @@
 #include <ti/drivers/SPI.h>
 #include <ti/drivers/I2C.h>
 #include <ti/drivers/NVS.h>
+#include <ti/drivers/Power.h>
 
 #include <ti/sysbios/knl/Task.h>
 #include <ti/sysbios/knl/Clock.h>
@@ -93,6 +94,8 @@
 #define ES_PERIODIC_EVT						 12
 #define ES_EXPORT_DATA						 13
 #define ES_AXY_EVT						     14
+#define ES_EXPORT_POST						 15
+#define ES_EXPORT_DONE					     16
 
 // Internal Events for RTOS application
 #define SP_ICALL_EVT                         ICALL_MSG_EVENT_ID // Event_Id_31
@@ -351,11 +354,12 @@ static void esloRecoverSession();
 static void esloUpdateNVS();
 static void esloResetVersion();
 
-NVS_Handle nvsHandle;
-NVS_Attrs regionAttrs;
-NVS_Params nvsParams;
-static uint32_t nvsBuffer[3]; // esloSignature, esloVersion, esloAddr
-uint32_t ESLOSignature = 0xE123E123; // something unique
+// !! MOVED TO ESLO.H, consider doing for all
+//NVS_Handle nvsHandle;
+//NVS_Attrs regionAttrs;
+//NVS_Params nvsParams;
+//static uint32_t nvsBuffer[3]; // esloSignature, esloVersion, esloAddr
+//uint32_t ESLOSignature = 0xE123E123; // something unique
 
 static Clock_Struct clkESLOPeriodic;
 spClockEventData_t argESLOPeriodic = { .event = ES_PERIODIC_EVT };
@@ -416,8 +420,8 @@ lsm303agr_reg_t reg;
 /* NAND Vars */
 uint8_t ret;
 uint16_t devId;
-uint8_t esloBuffer[PAGE_DATA_SIZE]; // used for writing
-uint8_t readBuf[PAGE_SIZE]; // 2176, always allocate full page size
+static uint8_t esloBuffer[PAGE_DATA_SIZE]; // used for writing
+static uint8_t readBuf[PAGE_SIZE]; // 2176, always allocate full page size
 uint32_t packet;
 uAddrType esloAddr, esloExportBlock;
 
@@ -484,41 +488,24 @@ static void esloSetVersion() {
 	ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
 }
 
-//static void exportDataBLE() {
-//	uint8_t modBlock = esloExportBlock % 16;
-//	uint32_t exportAddr = 0;
-//
-//	if (modBlock == 0 && esloExportBlock > 0) {
-//		exportAddr = (esloExportBlock / 16) * 0x1000;
-//	}
-//
-//	if (exportAddr < esloAddr) {
-//		if (modBlock == 0) {
-//			ret = FlashPageRead(exportAddr, readBuf); // read whole page
-//		}
-//		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR7,
-//		SIMPLEPROFILE_CHAR7_LEN, readBuf + (modBlock * 128));
-//	} else {
-//		// notify here, value does not matter right now
-//		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6,
-//		SIMPLEPROFILE_CHAR6_LEN, &exportAddr);
-//	}
-//}
-
 static void exportDataBLE() {
 //	uint8_t modBlock = esloExportBlock % 16;
 	uint8_t ii;
 	uint32_t exportAddr = esloExportBlock * 0x1000;
 
 	if (exportAddr < esloAddr) {
+		Power_disablePolicy();
 		ret = FlashPageRead(exportAddr, readBuf); // read whole page
 		for (ii = 0; ii < 16; ii++) {
 			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR7,
 			SIMPLEPROFILE_CHAR7_LEN, readBuf + (ii * 128));
+//			SimplePeripheral_enqueueMsg(ES_EXPORT_POST, readBuf + (ii * 128));
 		}
 	} else {
+		Power_enablePolicy();
 		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6,
 		SIMPLEPROFILE_CHAR6_LEN, &exportAddr);
+//		SimplePeripheral_enqueueMsg(ES_EXPORT_DONE, NULL);
 	}
 }
 
@@ -872,7 +859,12 @@ static void xlDataHandler(void) {
 }
 
 void eegDataReady(uint_least8_t index) {
-	SimplePeripheral_enqueueMsg(ES_EEG_NOTIF, NULL);
+	if (iEEGDiv < EEG_SAMPLING_DIV) {
+		iEEGDiv++;
+	} else {
+		SimplePeripheral_enqueueMsg(ES_EEG_NOTIF, NULL);
+		iEEGDiv = 0;
+	}
 }
 
 void axyXlReady(uint_least8_t index) {
@@ -1478,6 +1470,14 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 		break;
 	case ES_EXPORT_DATA:
 		exportDataBLE();
+		break;
+	case ES_EXPORT_POST:
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR7,
+		SIMPLEPROFILE_CHAR7_LEN, (void*) (pMsg->pData));
+		break;
+	case ES_EXPORT_DONE:
+		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6,
+		SIMPLEPROFILE_CHAR6_LEN, NULL);
 		break;
 	default:
 		// Do nothing.
