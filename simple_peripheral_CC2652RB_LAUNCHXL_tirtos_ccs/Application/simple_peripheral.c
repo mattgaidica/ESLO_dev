@@ -16,6 +16,7 @@
 #include <ti/drivers/I2C.h>
 #include <ti/drivers/NVS.h>
 #include <ti/drivers/Power.h>
+#include <ti/drivers/Watchdog.h>
 
 #include <ti/sysbios/knl/Task.h>
 #include <ti/sysbios/knl/Clock.h>
@@ -353,6 +354,7 @@ static void readTherm();
 static void esloRecoverSession();
 static void esloUpdateNVS();
 static void esloResetVersion();
+static void WatchdogCallbackFxn();
 
 // !! MOVED TO ESLO.H, consider doing for all
 //NVS_Handle nvsHandle;
@@ -391,7 +393,7 @@ uint32_t eegCount = 0;
 ReturnType ret; // NAND
 // increments of 0.625ms
 uint32_t adv_shortDuration = 1600; // 1s
-uint32_t adv_longDuration = 16000 / 4; // 60s
+uint32_t adv_longDuration = 1600 * 10; // 15s
 
 #define PACKET_SZ_EEG SIMPLEPROFILE_CHAR4_LEN / 4
 int32_t eeg1Buffer[PACKET_SZ_EEG];
@@ -431,6 +433,12 @@ int32_t ch1;
 int32_t ch2;
 int32_t ch3;
 int32_t ch4;
+
+Watchdog_Params params;
+Watchdog_Handle watchdogHandle;
+
+uint8_t xl_online = 1;
+uint8_t mg_online = 1;
 
 static void esloResetVersion() {
 	esloAddr = 0; // comes first, so NAND first entry is version
@@ -550,34 +558,6 @@ static void esloSleep() {
 static void mapEsloSettings(uint8_t *esloSettingsNew) {
 	eslo_dt eslo;
 
-// !! do both advertisements need to be synced, or could extended adv always be long?
-	if (esloSettings[Set_AdvLong] != *(esloSettingsNew + Set_AdvLong)) {
-		esloSettings[Set_AdvLong] = *(esloSettingsNew + Set_AdvLong);
-		GapAdv_disable(advHandleLongRange);
-		GapAdv_disable(advHandleLegacy);
-		if (esloSettings[Set_AdvLong] > 0x00) { // long
-			GapAdv_setParam(advHandleLongRange,
-					GAP_ADV_PARAM_PRIMARY_INTERVAL_MIN, &adv_longDuration);
-			GapAdv_setParam(advHandleLongRange,
-					GAP_ADV_PARAM_PRIMARY_INTERVAL_MAX, &adv_longDuration);
-			GapAdv_setParam(advHandleLegacy, GAP_ADV_PARAM_PRIMARY_INTERVAL_MIN,
-					&adv_longDuration);
-			GapAdv_setParam(advHandleLegacy, GAP_ADV_PARAM_PRIMARY_INTERVAL_MAX,
-					&adv_longDuration);
-		} else { // short
-			GapAdv_setParam(advHandleLongRange,
-					GAP_ADV_PARAM_PRIMARY_INTERVAL_MIN, &adv_shortDuration);
-			GapAdv_setParam(advHandleLongRange,
-					GAP_ADV_PARAM_PRIMARY_INTERVAL_MAX, &adv_shortDuration);
-			GapAdv_setParam(advHandleLegacy, GAP_ADV_PARAM_PRIMARY_INTERVAL_MIN,
-					&adv_shortDuration);
-			GapAdv_setParam(advHandleLegacy, GAP_ADV_PARAM_PRIMARY_INTERVAL_MAX,
-					&adv_shortDuration);
-		}
-		GapAdv_enable(advHandleLongRange, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
-		GapAdv_enable(advHandleLegacy, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
-	}
-
 // order: end with the things that have interrupts
 //	if (esloSettingsNew[Set_ExportData] > 0x00) {
 //		// force turn off AXY and EEG by overwriting new settings
@@ -606,11 +586,18 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 		Util_restartClock(&clkESLOPeriodic, ES_PERIODIC_EVT_PERIOD);
 	}
 
+	// can't happen when connected, see: GAP_LINK_TERMINATED_EVENT
+	if (esloSettings[Set_AdvLong] != *(esloSettingsNew + Set_AdvLong)) {
+		esloSettings[Set_AdvLong] = *(esloSettingsNew + Set_AdvLong);
+	}
+
 	if (esloSettings[Set_SleepWake] != *(esloSettingsNew + Set_SleepWake)) {
 		esloSettings[Set_SleepWake] = *(esloSettingsNew + Set_SleepWake);
 	}
 	if (esloSettings[Set_TxPower] != *(esloSettingsNew + Set_TxPower)) {
 		esloSettings[Set_TxPower] = *(esloSettingsNew + Set_TxPower);
+//		GapAdvStatus = GapAdv_disable(advHandleLongRange);
+//		GapAdvStatus = GapAdv_disable(advHandleLegacy);
 		switch (*(esloSettingsNew + Set_TxPower)) {
 		case 0:
 			HCI_EXT_SetTxPowerCmd(HCI_EXT_TX_POWER_MINUS_20_DBM);
@@ -627,6 +614,10 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 		default:
 			break;
 		}
+//		GapAdvStatus = GapAdv_enable(advHandleLongRange,
+//				GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
+//		GapAdvStatus = GapAdv_enable(advHandleLegacy,
+//				GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
 	}
 	if (esloSettings[Set_AxyMode] != *(esloSettingsNew + Set_AxyMode)) {
 		// set it first, Xl function uses them
@@ -868,7 +859,9 @@ void eegDataReady(uint_least8_t index) {
 }
 
 void axyXlReady(uint_least8_t index) {
-	SimplePeripheral_enqueueMsg(ES_XL_NOTIF, NULL);
+	if (xl_online && mg_online) {
+		SimplePeripheral_enqueueMsg(ES_XL_NOTIF, NULL);
+	}
 }
 
 static void eegInterrupt(bool enableInterrupt) {
@@ -924,7 +917,7 @@ static void xlInterrupt(bool enableInterrupt) {
 static uint8_t updateXlFromSettings(bool actOnInterrupt) {
 	bool enableInterrupt;
 
-	if (USE_AXY(esloSettings) == ESLO_MODULE_ON) {
+	if (USE_AXY(esloSettings) == ESLO_MODULE_ON && xl_online && mg_online) {
 		lsm303agr_mag_operating_mode_set(&dev_ctx_mg,
 				LSM303AGR_CONTINUOUS_MODE);
 		lsm303agr_mag_data_rate_set(&dev_ctx_mg, LSM303AGR_MG_ODR_10Hz);
@@ -967,7 +960,7 @@ static void ESLO_startup(void) {
 
 // init Settings
 	esloSettings[Set_EEG1] = 0x00; // only one channel at init
-	esloSettings[Set_TxPower] = 0x00; // 1 = Tx0, assumes default in SysConfig
+	esloSettings[Set_TxPower] = 0x00; // Set in SysConfig and make it match here
 	esloSettings[Set_AxyMode] = 0x00;
 	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
 			esloSettings);
@@ -992,58 +985,74 @@ static void ESLO_startup(void) {
 	dev_ctx_mg.read_reg = platform_i2c_read;
 	dev_ctx_mg.handle = (void*) LSM303AGR_I2C_ADD_MG;
 
-	lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_ENABLE);
-
 	reg.byte = 0;
 	lsm303agr_xl_device_id_get(&dev_ctx_xl, &reg.byte);
-	if (reg.byte != LSM303AGR_ID_XL)
-		while (1)
-			;
-
-	lsm303agr_xl_block_data_update_set(&dev_ctx_xl, PROPERTY_ENABLE);
-	lsm303agr_xl_full_scale_set(&dev_ctx_xl, LSM303AGR_2g);
-	lsm303agr_xl_operating_mode_set(&dev_ctx_xl, LSM303AGR_HR_12bit);
-//	lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_10Hz); // !! Doesn't matter, updateXlFromSettings() updates them
+	if (reg.byte == LSM303AGR_ID_XL) {
+		lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_ENABLE);
+		lsm303agr_xl_block_data_update_set(&dev_ctx_xl, PROPERTY_ENABLE);
+		lsm303agr_xl_full_scale_set(&dev_ctx_xl, LSM303AGR_2g);
+		lsm303agr_xl_operating_mode_set(&dev_ctx_xl, LSM303AGR_HR_12bit);
+		//	lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_10Hz); // !! Doesn't matter, updateXlFromSettings() updates them
+	} else {
+		xl_online = 0;
+	}
 
 	reg.byte = 0;
 	lsm303agr_mag_device_id_get(&dev_ctx_mg, &reg.byte);
-	if (reg.byte != LSM303AGR_ID_MG)
-		while (1)
-			; /*manage here device not found */
+	if (reg.byte == LSM303AGR_ID_MG) {
+		/* Restore default configuration for magnetometer */
+		lsm303agr_mag_reset_set(&dev_ctx_mg, PROPERTY_ENABLE);
+		do {
+			lsm303agr_mag_reset_get(&dev_ctx_mg, &reg.byte);
+		} while (reg.byte);
 
-	/* Restore default configuration for magnetometer */
-	lsm303agr_mag_reset_set(&dev_ctx_mg, PROPERTY_ENABLE);
-	do {
-		lsm303agr_mag_reset_get(&dev_ctx_mg, &reg.byte);
-	} while (reg.byte);
-
-	lsm303agr_mag_block_data_update_set(&dev_ctx_mg, PROPERTY_ENABLE);
-//	lsm303agr_mag_data_rate_set(&dev_ctx_mg, LSM303AGR_MG_ODR_10Hz); // !! Doesn't matter, updateXlFromSettings() updates them
-	lsm303agr_mag_set_rst_mode_set(&dev_ctx_mg,
-			LSM303AGR_SENS_OFF_CANC_EVERY_ODR);
-	lsm303agr_mag_offset_temp_comp_set(&dev_ctx_mg, PROPERTY_ENABLE);
-	lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_ENABLE);
-//	lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_CONTINUOUS_MODE); // LSM303AGR_POWER_DOWN, LSM303AGR_CONTINUOUS_MODE
+		lsm303agr_mag_block_data_update_set(&dev_ctx_mg, PROPERTY_ENABLE);
+		//	lsm303agr_mag_data_rate_set(&dev_ctx_mg, LSM303AGR_MG_ODR_10Hz); // !! Doesn't matter, updateXlFromSettings() updates them
+		lsm303agr_mag_set_rst_mode_set(&dev_ctx_mg,
+				LSM303AGR_SENS_OFF_CANC_EVERY_ODR);
+		lsm303agr_mag_offset_temp_comp_set(&dev_ctx_mg, PROPERTY_ENABLE);
+		//	lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_CONTINUOUS_MODE); // LSM303AGR_POWER_DOWN, LSM303AGR_CONTINUOUS_MODE
+	} else {
+		mg_online = 0;
+	}
 
 	ADC_Params_init(&adcParams_vBatt);
 	adc_vBatt = ADC_open(R_VBATT, &adcParams_vBatt);
 	if (adc_vBatt == NULL) {
-		while (1) {
-			// !! what happens here?
-		}
+//		while (1) {
+//			// !! what happens here?
+//		}
 	}
 	ADC_Params_init(&adcParams_therm);
 	adc_therm = ADC_open(THERM, &adcParams_therm);
 	if (adc_therm == NULL) {
-		while (1) {
-			// !! what happens here?
-		}
+//		while (1) {
+//			// !! what happens here?
+//		}
+	}
+
+	Watchdog_init();
+	Watchdog_Params_init(&params);
+	params.resetMode = Watchdog_RESET_ON;
+//	params.callbackFxn = (Watchdog_Callback) WatchdogCallbackFxn;
+	params.callbackFxn = NULL;
+	watchdogHandle = Watchdog_open(CONFIG_WATCHDOG_0, &params);
+	if (watchdogHandle == NULL) {
+		// Spin forever
+//		while (1)
+//			;
 	}
 
 	updateXlFromSettings(true); // turn on interrupt here
 	eegInterrupt(enableEEGInterrupt); // turn on now
 	Util_startClock(&clkESLOPeriodic);
+
 	GPIO_write(LED_0, 0x00);
+}
+
+// assumes graceful watchdog
+void WatchdogCallbackFxn(Watchdog_Handle handle) {
+	esloSleep();
 }
 
 /*********************************************************************
@@ -1666,12 +1675,32 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 			if (esloSettings[Set_SleepWake] == ESLO_MODULE_OFF) {
 				esloSleep();
 			}
-		}
 
-		BLE_LOG_INT_STR(0, BLE_LOG_MODULE_APP, "APP : GAP msg: status=%d, opcode=%s\n", 0, "GAP_LINK_TERMINATED_EVENT");
-		// Start advertising since there is room for more connections
-		GapAdv_enable(advHandleLegacy, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
-		GapAdv_enable(advHandleLongRange, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
+			BLE_LOG_INT_STR(0, BLE_LOG_MODULE_APP, "APP : GAP msg: status=%d, opcode=%s\n", 0, "GAP_LINK_TERMINATED_EVENT");
+			// just set this each disconnect, don't worry about detecting a change
+			if (esloSettings[Set_AdvLong] > 0x00) { // long
+				GapAdv_setParam(advHandleLongRange,
+						GAP_ADV_PARAM_PRIMARY_INTERVAL_MIN, &adv_longDuration);
+				GapAdv_setParam(advHandleLongRange,
+						GAP_ADV_PARAM_PRIMARY_INTERVAL_MAX, &adv_longDuration);
+				GapAdv_setParam(advHandleLegacy,
+						GAP_ADV_PARAM_PRIMARY_INTERVAL_MIN, &adv_longDuration);
+				GapAdv_setParam(advHandleLegacy,
+						GAP_ADV_PARAM_PRIMARY_INTERVAL_MAX, &adv_longDuration);
+			} else { // short
+				GapAdv_setParam(advHandleLongRange,
+						GAP_ADV_PARAM_PRIMARY_INTERVAL_MIN, &adv_shortDuration);
+				GapAdv_setParam(advHandleLongRange,
+						GAP_ADV_PARAM_PRIMARY_INTERVAL_MAX, &adv_shortDuration);
+				GapAdv_setParam(advHandleLegacy,
+						GAP_ADV_PARAM_PRIMARY_INTERVAL_MIN, &adv_shortDuration);
+				GapAdv_setParam(advHandleLegacy,
+						GAP_ADV_PARAM_PRIMARY_INTERVAL_MAX, &adv_shortDuration);
+			}
+			GapAdv_enable(advHandleLegacy, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
+			GapAdv_enable(advHandleLongRange, GAP_ADV_ENABLE_OPTIONS_USE_MAX,
+					0);
+		}
 
 		break;
 	}
@@ -1864,6 +1893,8 @@ static void SimplePeripheral_notifyVitals(void) {
 
 static void ESLO_performPeriodicTask() {
 	eslo_dt eslo;
+
+	Watchdog_clear(watchdogHandle);
 
 	absoluteTime += (ES_PERIODIC_EVT_PERIOD / 1000);
 	eslo.type = Type_AbsoluteTime;

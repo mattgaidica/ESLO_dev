@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2019, Texas Instruments Incorporated
+ * Copyright (c) 2016-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -25,63 +25,62 @@
  * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
  * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
  * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 /*
- *  ======== empty.c ========
+ *  ======== main_tirtos.c ========
  */
-
-/* For usleep() */
-#include <unistd.h>
 #include <stdint.h>
-#include <stddef.h>
 
-/* Driver Header files */
-#include <ti/drivers/GPIO.h>
-#include <ti/sysbios/knl/Task.h>
-// #include <ti/drivers/I2C.h>
-// #include <ti/drivers/SPI.h>
-// #include <ti/drivers/UART.h>
-// #include <ti/drivers/Watchdog.h>
+/* POSIX Header files */
+#include <pthread.h>
 
-/* Driver configuration */
-#include "ti_drivers_config.h"
+/* RTOS header files */
+#include <ti/sysbios/BIOS.h>
 
-void eegDataReady(uint_least8_t index) {
-}
+#include <ti/drivers/Board.h>
 
-void axyXlReady(uint_least8_t index) {
-}
+extern void *mainThread(void *arg0);
 
-void axyMagReady(uint_least8_t index) {
-}
+/* Stack size in bytes */
+#define THREADSTACKSIZE    1024
 
 /*
- *  ======== mainThread ========
+ *  ======== main ========
  */
-void *mainThread(void *arg0)
+int main(void)
 {
-    /* 1 second delay */
-//    uint32_t time = 1;
+    pthread_t           thread;
+    pthread_attr_t      attrs;
+    struct sched_param  priParam;
+    int                 retc;
 
-    /* Call driver init functions */
-    GPIO_init();
-    // I2C_init();
-    // SPI_init();
-    // UART_init();
-    // Watchdog_init();
+    Board_init();
 
-    /* Configure the LED pin */
-//    GPIO_setConfig(LED_0, GPIO_CFG_OUT_STD | GPIO_CFG_OUT_LOW);
+    /* Initialize the attributes structure with default values */
+    pthread_attr_init(&attrs);
 
-    /* Turn on user LED */
-    GPIO_write(LED_0, CONFIG_GPIO_LED_ON);
-
-    while (1) {
-        Task_sleep(50000);
-        GPIO_toggle(LED_0);
+    /* Set priority, detach state, and stack size attributes */
+    priParam.sched_priority = 1;
+    retc = pthread_attr_setschedparam(&attrs, &priParam);
+    retc |= pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
+    retc |= pthread_attr_setstacksize(&attrs, THREADSTACKSIZE);
+    if (retc != 0) {
+        /* failed to set attributes */
+        while (1) {}
     }
+
+    retc = pthread_create(&thread, &attrs, mainThread, NULL);
+    if (retc != 0) {
+        /* pthread_create() failed */
+        while (1) {}
+    }
+
+    BIOS_start();
+
+    return (0);
 }

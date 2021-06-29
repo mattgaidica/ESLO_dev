@@ -2,7 +2,7 @@
  * These arguments were used when this file was generated. They will be automatically applied on subsequent loads
  * via the GUI or CLI. Run CLI with '--help' for additional information on how to override these arguments.
  * @cliArgs --board "/ti/boards/CC2652RB_LAUNCHXL" --product "simplelink_cc13x2_26x2_sdk@4.40.04.04"
- * @versions {"data":"2021010520","timestamp":"2021010520","tool":"1.7.0+1746","templates":null}
+ * @versions {"data":"2021031521","timestamp":"2021031521","tool":"1.8.0+1863","templates":null}
  */
 
 /**
@@ -48,6 +48,8 @@ const SPI2        = SPI.addInstance();
 const TRNG        = scripting.addModule("/ti/drivers/TRNG");
 const TRNG1       = TRNG.addInstance();
 const TRNG2       = TRNG.addInstance();
+const Watchdog    = scripting.addModule("/ti/drivers/Watchdog", {}, false);
+const Watchdog1   = Watchdog.addInstance();
 
 /**
  * Write custom configuration values to the imported modules.
@@ -56,10 +58,11 @@ ble.lockProject                                           = true;
 ble.tbmActiveItemsOnly                                    = false;
 ble.disableDisplayModule                                  = true;
 ble.maxPDUSize                                            = 255;
-ble.deviceName                                            = "ESLO 001";
 ble.maxPDUNum                                             = 16;
 ble.addressMode                                           = "ADDRMODE_PUBLIC";
 ble.maxConnNum                                            = 1;
+ble.deviceName                                            = "ESLO SUR";
+ble.defaultTxPower                                        = "HCI_EXT_TX_POWER_MINUS_20_DBM";
 ble.radioConfig.codeExportConfig.$name                    = "ti_devices_radioconfig_code_export_param0";
 ble.connUpdateParamsPeripheral.$name                      = "ti_ble5stack_general_ble_conn_update_params0";
 ble.connUpdateParamsPeripheral.reqMinConnInt              = 15;
@@ -80,9 +83,9 @@ ble.advSet1.scanRes1.$name                                = "ti_ble5stack_broadc
 ble.advSet1.scanRes1.GAP_ADTYPE_LOCAL_NAME_COMPLETE       = true;
 ble.advSet1.scanRes1.GAP_ADTYPE_SLAVE_CONN_INTERVAL_RANGE = true;
 ble.advSet1.scanRes1.GAP_ADTYPE_POWER_LEVEL               = true;
-ble.advSet1.scanRes1.completeLocalName                    = "ESLO 001";
 ble.advSet1.scanRes1.minConnInterval                      = 15;
 ble.advSet1.scanRes1.maxConnInterval                      = 15;
+ble.advSet1.scanRes1.completeLocalName                    = "ESLO SUR";
 ble.advSet2.$name                                         = "ti_ble5stack_broadcaster_advertisement_set1";
 ble.advSet2.advParam2.$name                               = "ti_ble5stack_broadcaster_advertisement_params1";
 ble.advSet2.advParam2.advType                             = "extended";
@@ -100,9 +103,9 @@ ble.advSet2.scanRes2.$name                                = "ti_ble5stack_broadc
 ble.advSet2.scanRes2.GAP_ADTYPE_LOCAL_NAME_COMPLETE       = true;
 ble.advSet2.scanRes2.GAP_ADTYPE_SLAVE_CONN_INTERVAL_RANGE = true;
 ble.advSet2.scanRes2.GAP_ADTYPE_POWER_LEVEL               = true;
-ble.advSet2.scanRes2.completeLocalName                    = "ESLO 001";
 ble.advSet2.scanRes2.minConnInterval                      = 15;
 ble.advSet2.scanRes2.maxConnInterval                      = 15;
+ble.advSet2.scanRes2.completeLocalName                    = "ESLO SUR";
 
 CCFG.srcClkLF           = "LF RCOSC";
 CCFG.enableDCDC         = false;
@@ -236,6 +239,9 @@ TRNG1.$name = "CONFIG_TRNG_0";
 
 TRNG2.$name = "CONFIG_TRNG_1";
 
+Watchdog1.$name  = "CONFIG_WATCHDOG_0";
+Watchdog1.period = 70000;
+
 /**
  * Pinmux solution for unlocked pins/peripherals. This ensures that minor changes to the automatic solver in a future
  * version of the tool will not impact the pinmux you originally saw.  These lines can be completely deleted in order to
@@ -255,3 +261,4 @@ SPI1.spi.dmaTxChannel.$suggestSolution = "DMA_CH4";
 SPI2.spi.$suggestSolution              = "SSI1";
 SPI2.spi.dmaRxChannel.$suggestSolution = "DMA_CH16";
 SPI2.spi.dmaTxChannel.$suggestSolution = "DMA_CH17";
+Watchdog1.watchdog.$suggestSolution    = "WDT0";

@@ -41,7 +41,6 @@
 
 /* Driver Header files */
 #include <ti/drivers/GPIO.h>
-#include <ti/sysbios/knl/Task.h>
 // #include <ti/drivers/I2C.h>
 // #include <ti/drivers/SPI.h>
 // #include <ti/drivers/UART.h>
@@ -50,22 +49,13 @@
 /* Driver configuration */
 #include "ti_drivers_config.h"
 
-void eegDataReady(uint_least8_t index) {
-}
-
-void axyXlReady(uint_least8_t index) {
-}
-
-void axyMagReady(uint_least8_t index) {
-}
-
 /*
  *  ======== mainThread ========
  */
 void *mainThread(void *arg0)
 {
     /* 1 second delay */
-//    uint32_t time = 1;
+    uint32_t time = 1;
 
     /* Call driver init functions */
     GPIO_init();
@@ -75,13 +65,13 @@ void *mainThread(void *arg0)
     // Watchdog_init();
 
     /* Configure the LED pin */
-//    GPIO_setConfig(LED_0, GPIO_CFG_OUT_STD | GPIO_CFG_OUT_LOW);
+    GPIO_setConfig(CONFIG_GPIO_LED_0, GPIO_CFG_OUT_STD | GPIO_CFG_OUT_LOW);
 
     /* Turn on user LED */
-    GPIO_write(LED_0, CONFIG_GPIO_LED_ON);
+    GPIO_write(CONFIG_GPIO_LED_0, CONFIG_GPIO_LED_ON);
 
     while (1) {
-        Task_sleep(50000);
-        GPIO_toggle(LED_0);
+        sleep(time);
+        GPIO_toggle(CONFIG_GPIO_LED_0);
     }
 }
