@@ -71,6 +71,8 @@
 #define SP_PERIODIC_EVT_PERIOD               3000
 #define ES_PERIODIC_EVT_PERIOD				 60000
 #define ES_AXY_PERIOD				 		 1000
+#define ES_ADV_SLEEP_PERIOD					 60000
+#define ES_ADV_AWAKE_PERIOD					 5000
 
 // Task configuration
 #define SP_TASK_PRIORITY                     1
@@ -97,6 +99,7 @@
 #define ES_AXY_EVT						     14
 #define ES_EXPORT_POST						 15
 #define ES_EXPORT_DONE					     16
+#define ES_ADV_SLEEP					     17
 
 // Internal Events for RTOS application
 #define SP_ICALL_EVT                         ICALL_MSG_EVENT_ID // Event_Id_31
@@ -355,6 +358,7 @@ static void esloRecoverSession();
 static void esloUpdateNVS();
 static void esloResetVersion();
 static void WatchdogCallbackFxn();
+static void advSleep();
 
 // !! MOVED TO ESLO.H, consider doing for all
 //NVS_Handle nvsHandle;
@@ -368,6 +372,10 @@ spClockEventData_t argESLOPeriodic = { .event = ES_PERIODIC_EVT };
 
 static Clock_Struct clkESLOAxy;
 spClockEventData_t argESLOAxy = { .event = ES_AXY_EVT };
+
+static Clock_Struct clkESLOAdvSleep;
+spClockEventData_t argESLOAdvSleep = { .event = ES_ADV_SLEEP };
+uint8_t isAsleep = 0;
 
 uint8_t esloSettings[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
 uint8_t esloSettingsSleep[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
@@ -391,9 +399,6 @@ uint32_t esloVersion = 0x00000000;
 uint32_t axyCount = 0;
 uint32_t eegCount = 0;
 ReturnType ret; // NAND
-// increments of 0.625ms
-uint32_t adv_shortDuration = 1600; // 1s
-uint32_t adv_longDuration = 1600 * 10; // 15s
 
 #define PACKET_SZ_EEG SIMPLEPROFILE_CHAR4_LEN / 4
 int32_t eeg1Buffer[PACKET_SZ_EEG];
@@ -439,6 +444,20 @@ Watchdog_Handle watchdogHandle;
 
 uint8_t xl_online = 1;
 uint8_t mg_online = 1;
+
+static void advSleep() {
+	if (isAsleep) { // wake-up, enable advertise for short period
+		Util_restartClock(&clkESLOAdvSleep, ES_ADV_AWAKE_PERIOD);
+		GapAdv_enable(advHandleLegacy, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
+		GapAdv_enable(advHandleLongRange, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
+		isAsleep = 0;
+	} else {
+		Util_restartClock(&clkESLOAdvSleep, ES_ADV_SLEEP_PERIOD);
+		GapAdv_disable(advHandleLongRange);
+		GapAdv_disable(advHandleLegacy);
+		isAsleep = 1;
+	}
+}
 
 static void esloResetVersion() {
 	esloAddr = 0; // comes first, so NAND first entry is version
@@ -1125,6 +1144,10 @@ static void SimplePeripheral_init(void) {
 	Util_constructClock(&clkESLOAxy, SimplePeripheral_clockHandler,
 	ES_AXY_PERIOD, 0, false, (UArg) &argESLOAxy);
 
+	// don't turn on because advertising is enabled on startup below, turn on at conn. terminate
+	Util_constructClock(&clkESLOAdvSleep, SimplePeripheral_clockHandler,
+	ES_ADV_SLEEP_PERIOD, 0, false, (UArg) &argESLOAdvSleep);
+
 // Set the Device Name characteristic in the GAP GATT Service
 // For more information, see the section in the User's Guide:
 // http://software-dl.ti.com/lprf/ble5stack-latest/
@@ -1488,6 +1511,9 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6,
 		SIMPLEPROFILE_CHAR6_LEN, NULL);
 		break;
+	case ES_ADV_SLEEP:
+		advSleep();
+		break;
 	default:
 		// Do nothing.
 		break;
@@ -1618,6 +1644,8 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 //                     (uint16_t)numActive);
 
 		if (pPkt->hdr.status == SUCCESS) {
+			Util_stopClock(&clkESLOAdvSleep); // stop advSleep duty cycle
+
 			// Add connection to list and start RSSI
 			SimplePeripheral_addConn(pPkt->connectionHandle);
 
@@ -1677,29 +1705,17 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 			}
 
 			BLE_LOG_INT_STR(0, BLE_LOG_MODULE_APP, "APP : GAP msg: status=%d, opcode=%s\n", 0, "GAP_LINK_TERMINATED_EVENT");
-			// just set this each disconnect, don't worry about detecting a change
+
+			isAsleep = 1;
 			if (esloSettings[Set_AdvLong] > 0x00) { // long
-				GapAdv_setParam(advHandleLongRange,
-						GAP_ADV_PARAM_PRIMARY_INTERVAL_MIN, &adv_longDuration);
-				GapAdv_setParam(advHandleLongRange,
-						GAP_ADV_PARAM_PRIMARY_INTERVAL_MAX, &adv_longDuration);
-				GapAdv_setParam(advHandleLegacy,
-						GAP_ADV_PARAM_PRIMARY_INTERVAL_MIN, &adv_longDuration);
-				GapAdv_setParam(advHandleLegacy,
-						GAP_ADV_PARAM_PRIMARY_INTERVAL_MAX, &adv_longDuration);
-			} else { // short
-				GapAdv_setParam(advHandleLongRange,
-						GAP_ADV_PARAM_PRIMARY_INTERVAL_MIN, &adv_shortDuration);
-				GapAdv_setParam(advHandleLongRange,
-						GAP_ADV_PARAM_PRIMARY_INTERVAL_MAX, &adv_shortDuration);
-				GapAdv_setParam(advHandleLegacy,
-						GAP_ADV_PARAM_PRIMARY_INTERVAL_MIN, &adv_shortDuration);
-				GapAdv_setParam(advHandleLegacy,
-						GAP_ADV_PARAM_PRIMARY_INTERVAL_MAX, &adv_shortDuration);
+				Util_startClock(&clkESLOAdvSleep);
+			} else { // keep advertising on at full rate
+				GapAdv_enable(advHandleLegacy, GAP_ADV_ENABLE_OPTIONS_USE_MAX,
+						0);
+				GapAdv_enable(advHandleLongRange,
+						GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
 			}
-			GapAdv_enable(advHandleLegacy, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
-			GapAdv_enable(advHandleLongRange, GAP_ADV_ENABLE_OPTIONS_USE_MAX,
-					0);
+
 		}
 
 		break;
@@ -1974,6 +1990,11 @@ static void SimplePeripheral_clockHandler(UArg arg) {
 		Util_startClock(&clkRpaRead);
 		// Post event to read the current RPA
 		SimplePeripheral_enqueueMsg(SP_READ_RPA_EVT, NULL);
+	} else if (pData->event == ES_ADV_SLEEP) {
+		// Start the next period
+		Util_startClock(&clkESLOAdvSleep);
+		// Post event to wake up the application
+		SimplePeripheral_enqueueMsg(ES_ADV_SLEEP, NULL);
 	} else if (pData->event == SP_SEND_PARAM_UPDATE_EVT) {
 		// Send message to app
 		SimplePeripheral_enqueueMsg(SP_SEND_PARAM_UPDATE_EVT, pData);
