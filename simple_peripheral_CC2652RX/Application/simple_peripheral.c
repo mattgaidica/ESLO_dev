@@ -6,6 +6,8 @@
  Target Device: cc13x2_26x2
 
  ******************************************************************************/
+#include <stdint.h>
+#include <unistd.h>
 
 #include <string.h>
 #include <math.h> // atan2(x,y), M_PI
@@ -14,6 +16,10 @@
 #include <ti/drivers/GPIO.h>
 #include <ti/drivers/SPI.h>
 #include <ti/drivers/NVS.h>
+
+#include <ti/display/Display.h>
+#include <ti/display/DisplayUart.h>
+#include <ti/display/DisplayExt.h>
 
 #include <ti/sysbios/knl/Task.h>
 #include <ti/sysbios/knl/Clock.h>
@@ -52,6 +58,10 @@
 /* Axy */
 #include <lsm6dsox_CCXXXX.h>
 #include <lsm6dsox_reg.h>
+
+/* ADS129X */
+#include <ADS129X.h>
+#include <Definitions.h>
 
 /*********************************************************************
  * MACROS
@@ -351,7 +361,7 @@ NVS_Handle nvsHandle;
 NVS_Attrs regionAttrs;
 NVS_Params nvsParams;
 static uint32_t nvsBuffer[3]; // esloSignature, esloVersion, esloAddr
-uint32_t ESLOSignature = 0xE123E123; // something unique
+//uint32_t ESLOSignature = 0xE123E123; // something unique
 
 static Clock_Struct clkESLOPeriodic;
 spClockEventData_t argESLOPeriodic = { .event = ES_PERIODIC_EVT };
@@ -967,6 +977,21 @@ static uint8_t updateXlFromSettings(bool actOnInterrupt) {
 
 static void ESLO_startup(void) {
 	GPIO_init();
+
+	Display_init();
+	Display_Params params;
+	Display_Params_init(&params);
+	params.lineClearMode = DISPLAY_CLEAR_BOTH;
+	Display_Handle hSerial = Display_open(Display_Type_UART, &params);
+	if (hSerial == NULL) {
+		while (1) {
+		}
+	}
+
+	while (1) {
+		Display_printf(hSerial, 0, 0, "BABE");
+	}
+
 	SPI_init();
 	ADC_init();
 	NVS_init();
@@ -982,23 +1007,34 @@ static void ESLO_startup(void) {
 	/* NVS */
 //	NVS_Params_init(&nvsParams);
 //	esloRecoverSession();
-
 	/* NAND */
 //	NAND_Init(CONFIG_SPI, _NAND_CS);
-//	ret = FlashReadDeviceIdentification(&devId);
-
+//	ret = FlashReadDeviceIdentification(&devId); // should be 0x8D for AS5F18G04SND-10LIN
 	/* ADS129X - Defaults in SysConfig */
-	bool enableEEGInterrupt = updateEEGFromSettings(false); // do not turn on yet
+//	bool enableEEGInterrupt = updateEEGFromSettings(false); // do not turn on yet
+	uint8_t ADS_ID;
+	GPIO_write(EEG_PWDN, 0x01);
+	GPIO_write(_SHDN, 0x01);
+	Task_sleep(150000 / Clock_tickPeriod);
+	ADS_init(CONFIG_SPI_EEG, _EEG_CS);
+	ADS_ID = ADS_getDeviceID(); // 0x90
 
 	/* AXY - init no matter what */
-	AXY_Init(CONFIG_SPI, _NAND_CS, AXY_CS);
+	AXY_Init(CONFIG_SPI, AXY_CS);
 	dev_ctx_xl.write_reg = write_reg;
 	dev_ctx_xl.read_reg = read_reg;
 	dev_ctx_xl.handle = (void*) spiAXY;
 	uint8_t axy_whoami;
-	while(1) {
-		lsm6dsox_device_id_get(&dev_ctx_xl, &axy_whoami);
-	}
+	int32_t spi_ret;
+////	while(1) {
+	lsm6dsox_device_id_get(&dev_ctx_xl, &axy_whoami); // 0x6C
+	spi_ret = lsm6dsox_gy_power_mode_set(&dev_ctx_xl, LSM6DSOX_GY_NORMAL);
+	spi_ret = lsm6dsox_gy_data_rate_set(&dev_ctx_xl, LSM6DSOX_GY_ODR_OFF);
+	spi_ret = lsm6dsox_xl_power_mode_set(&dev_ctx_xl,
+			LSM6DSOX_ULTRA_LOW_POWER_MD);
+	spi_ret = lsm6dsox_xl_data_rate_set(&dev_ctx_xl, LSM6DSOX_XL_ODR_OFF);
+//	}
+
 //	dev_ctx_mg.write_reg = platform_i2c_write;
 //	dev_ctx_mg.read_reg = platform_i2c_read;
 //	dev_ctx_mg.handle = (void*) LSM303AGR_I2C_ADD_MG;
@@ -1055,6 +1091,9 @@ static void ESLO_startup(void) {
 //	eegInterrupt(enableEEGInterrupt); // turn on now
 	Util_startClock(&clkESLOPeriodic);
 	GPIO_write(LED_0, 0x00);
+	GPIO_write(LED_1, 0x00);
+	GPIO_write(AXY_CS, 0x01);
+	GPIO_write(_NAND_CS, 0x01);
 }
 
 /*********************************************************************

@@ -50,7 +50,7 @@ void* mainThread(void *arg0) {
 		ESLO_decodeNVS(nvsBuffer, &tempSignature, &tempVersion, &tempAddress);
 	}
 
-
+	tempAddress = 0x78000; // !! RMRMRM temp
 	// could find last block first, then for loop
 	while (1) {
 		ret = FlashPageRead(esloAddr, readBuf);
