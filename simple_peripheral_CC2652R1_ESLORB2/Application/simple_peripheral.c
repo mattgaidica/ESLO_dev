@@ -6,6 +6,8 @@
  Target Device: cc13x2_26x2
 
  ******************************************************************************/
+#include <stdint.h>
+#include <unistd.h>
 
 #include <string.h>
 #include <math.h> // atan2(x,y), M_PI
@@ -16,6 +18,7 @@
 #include <ti/drivers/NVS.h>
 #include <ti/drivers/Power.h>
 #include <ti/drivers/Watchdog.h>
+#include <ti/drivers/UART.h>
 
 #include <ti/sysbios/knl/Task.h>
 #include <ti/sysbios/knl/Clock.h>
@@ -44,6 +47,13 @@
 #include <ti_drivers_config.h>
 #include "simple_peripheral.h"
 #include "ti_ble_config.h"
+
+#define PTM_MODE 1 // disables NPI below
+#ifdef PTM_MODE
+#include "npi_task.h"               // To allow RX event registration
+#include "npi_ble.h"                // To enable transmission of messages to UART
+#include "icall_hci_tl.h"   // To allow ICall HCI Transport Layer
+#endif // PTM_MODE
 
 /***** ESLO *****/
 /* AXY */
@@ -416,7 +426,6 @@ uint8_t iMG = 0;
 
 /* AXY Vars */
 
-
 /* NAND Vars */
 uint8_t ret;
 uint16_t devId;
@@ -432,11 +441,11 @@ int32_t ch2;
 int32_t ch3;
 int32_t ch4;
 
-Watchdog_Params params;
+Watchdog_Params watchdogParams;
 Watchdog_Handle watchdogHandle;
 
 uint8_t xl_online = 1;
-uint8_t mg_online = 1;
+UART_Handle uart = NULL;
 
 static void advSleep() {
 	if (isAsleep) { // wake-up, enable advertise for short period
@@ -871,7 +880,7 @@ void eegDataReady(uint_least8_t index) {
 }
 
 void axyXlReady(uint_least8_t index) {
-	if (xl_online && mg_online) {
+	if (xl_online) {
 		SimplePeripheral_enqueueMsg(ES_XL_NOTIF, NULL);
 	}
 }
@@ -969,6 +978,17 @@ static void ESLO_startup(void) {
 	NVS_init();
 	GPIO_write(LED_0, 0x01);
 
+	UART_init();
+	UART_Params uartParams;
+	UART_Params_init(&uartParams);
+	uartParams.writeDataMode = UART_DATA_BINARY;
+	uartParams.baudRate = 115200;
+//	uint8_t UARTbuf[2] = "p";
+//	uart = UART_open(CONFIG_UART_0, &uartParams); // UART_close(uart);
+//	while (1) {
+//		UART_write(uart, UARTbuf, 1);
+//	}
+
 // init Settings
 	esloSettings[Set_EEG1] = 0x00; // only one channel at init
 	esloSettings[Set_TxPower] = 0x00; // Set in SysConfig and make it match here
@@ -1026,7 +1046,6 @@ static void ESLO_startup(void) {
 //	} else {
 //		mg_online = 0;
 //	}
-
 	ADC_Params_init(&adcParams_vBatt);
 	adc_vBatt = ADC_open(R_VBATT, &adcParams_vBatt);
 	if (adc_vBatt == NULL) {
@@ -1043,11 +1062,11 @@ static void ESLO_startup(void) {
 	}
 
 	Watchdog_init();
-	Watchdog_Params_init(&params);
-	params.resetMode = Watchdog_RESET_ON;
+	Watchdog_Params_init(&watchdogParams);
+	watchdogParams.resetMode = Watchdog_RESET_ON;
 //	params.callbackFxn = (Watchdog_Callback) WatchdogCallbackFxn;
-	params.callbackFxn = NULL;
-	watchdogHandle = Watchdog_open(CONFIG_WATCHDOG_0, &params);
+	watchdogParams.callbackFxn = NULL;
+	watchdogHandle = Watchdog_open(CONFIG_WATCHDOG_0, &watchdogParams);
 	if (watchdogHandle == NULL) {
 		// Spin forever
 //		while (1)
@@ -1233,6 +1252,7 @@ static void SimplePeripheral_init(void) {
 
 // Initialize array to store connection handle and RSSI values
 	SimplePeripheral_initPHYRSSIArray();
+
 	ESLO_startup();
 }
 
@@ -1994,50 +2014,6 @@ static void SimplePeripheral_clockHandler(UArg arg) {
 }
 
 /*********************************************************************
- * @fn      SimplePeripheral_doSetConnPhy
- *
- * @brief   Set PHY preference.
- *
- * @param   index - 0: 1M PHY
- *                  1: 2M PHY
- *                  2: 1M + 2M PHY
- *                  3: CODED PHY (Long range)
- *                  4: 1M + 2M + CODED PHY
- *
- * @return  always true
- */
-bool SimplePeripheral_doSetConnPhy(uint8 index) {
-	bool status = TRUE;
-
-	static uint8_t phy[] = {
-	HCI_PHY_1_MBPS, HCI_PHY_2_MBPS, HCI_PHY_1_MBPS | HCI_PHY_2_MBPS,
-	HCI_PHY_CODED, HCI_PHY_1_MBPS | HCI_PHY_2_MBPS | HCI_PHY_CODED,
-	AUTO_PHY_UPDATE };
-
-	uint8_t connIndex = SimplePeripheral_getConnIndex(menuConnHandle);
-	if (connIndex >= MAX_NUM_BLE_CONNS) {
-//    Display_printf(dispHandle, SP_ROW_STATUS_1, 0, "Connection handle is not in the connList !!!");
-		return FALSE;
-	}
-
-// Set Phy Preference on the current connection. Apply the same value
-// for RX and TX.
-// If auto PHY update is not selected and if auto PHY update is enabled, then
-// stop auto PHY update
-// Note PHYs are already enabled by default in build_config.opt in stack project.
-	if (phy[index] != AUTO_PHY_UPDATE) {
-		// Cancel RSSI reading  and auto phy changing
-		SimplePeripheral_stopAutoPhyChange(connList[connIndex].connHandle);
-
-		SimplePeripheral_setPhy(menuConnHandle, 0, phy[index], phy[index], 0);
-	} else {
-		// Start RSSI read for auto PHY update (if it is disabled)
-		SimplePeripheral_startAutoPhyChange(menuConnHandle);
-	}
-
-	return status;
-}
-/*********************************************************************
  * @fn      SimplePeripheral_advCallback
  *
  * @brief   GapAdv module callback
@@ -2286,78 +2262,6 @@ static status_t SimplePeripheral_enqueueMsg(uint8_t event, void *pData) {
 	}
 
 	return (bleMemAllocError);
-}
-
-/*********************************************************************
- * @fn      SimplePeripheral_doSelectConn
- *
- * @brief   Select a connection to communicate with
- *
- * @param   index - item index from the menu
- *
- * @return  always true
- */
-bool SimplePeripheral_doSelectConn(uint8_t index) {
-	menuConnHandle = connList[index].connHandle;
-	return (true);
-}
-/*********************************************************************
- * @fn      SimplePeripheral_doAutoConnect
- *
- * @brief   Enable/Disable peripheral as AutoConnect node.
- *
- * @param   index - 0 : Disable AutoConnect
- *                  1 : Enable Group A
- *                  2 : Enable Group B
- *
- * @return  always true
- */
-bool SimplePeripheral_doAutoConnect(uint8_t index) {
-	if (index == 1) {
-		if (autoConnect != AUTOCONNECT_GROUP_A) {
-			GapAdv_disable(advHandleLongRange);
-			GapAdv_disable(advHandleLegacy);
-			advData1[2] = 'G';
-			advData1[3] = 'A';
-			advData2[2] = 'G';
-			advData2[3] = 'A';
-			GapAdv_enable(advHandleLegacy, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
-			GapAdv_enable(advHandleLongRange, GAP_ADV_ENABLE_OPTIONS_USE_MAX,
-					0);
-			autoConnect = AUTOCONNECT_GROUP_A;
-		}
-//	  Display_printf(dispHandle, SP_ROW_AC, 0, "AutoConnect enabled: Group A");
-	} else if (index == 2) {
-		if (autoConnect != AUTOCONNECT_GROUP_B) {
-			GapAdv_disable(advHandleLongRange);
-			GapAdv_disable(advHandleLegacy);
-			advData1[2] = 'G';
-			advData1[3] = 'B';
-			advData2[2] = 'G';
-			advData2[3] = 'B';
-			GapAdv_enable(advHandleLegacy, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
-			GapAdv_enable(advHandleLongRange, GAP_ADV_ENABLE_OPTIONS_USE_MAX,
-					0);
-			autoConnect = AUTOCONNECT_GROUP_B;
-		}
-//      Display_printf(dispHandle, SP_ROW_AC, 0, "AutoConnect enabled: Group B");
-	} else {
-		if (autoConnect) {
-			GapAdv_disable(advHandleLongRange);
-			GapAdv_disable(advHandleLegacy);
-			advData1[2] = 'S';
-			advData1[3] = 'P';
-			advData2[2] = 'S';
-			advData2[3] = 'P';
-			GapAdv_enable(advHandleLegacy, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
-			GapAdv_enable(advHandleLongRange, GAP_ADV_ENABLE_OPTIONS_USE_MAX,
-					0);
-			autoConnect = AUTOCONNECT_DISABLE;
-		}
-//      Display_printf(dispHandle, SP_ROW_AC, 0, "AutoConnect disabled");
-	}
-
-	return (true);
 }
 
 /*********************************************************************

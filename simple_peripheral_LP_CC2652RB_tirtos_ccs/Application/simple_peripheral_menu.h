@@ -1,16 +1,15 @@
 /******************************************************************************
 
- @file  simple_peripheral.h
+ @file  simple_peripheral_menu.h
 
- @brief This file contains the Simple Peripheral sample application
-        definitions and prototypes.
+ @brief This file contains menu objects for simple_peripheral.
 
- Group: WCS, BTS
+ Group: WCS BTS
  Target Device: cc13x2_26x2
 
  ******************************************************************************
  
- Copyright (c) 2013-2021, Texas Instruments Incorporated
+ Copyright (c) 2016-2021, Texas Instruments Incorporated
  All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
@@ -45,45 +44,49 @@
  
  *****************************************************************************/
 
-#ifndef SIMPLEPERIPHERAL_H
-#define SIMPLEPERIPHERAL_H
+#ifndef SIMPLE_PERIPHERAL_MENU_H
+#define SIMPLE_PERIPHERAL_MENU_H
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
-/*********************************************************************
- * INCLUDES
- */
+// Menu item indices.
+#define SP_ITEM_NONE            TBM_ITEM_NONE
+#define SP_ITEM_ALL             TBM_ITEM_ALL
 
-/*********************************************************************
-*  EXTERNAL VARIABLES
-*/
-
-/*********************************************************************
- * CONSTANTS
- */
-
-/*********************************************************************
- * MACROS
- */
-
-/*********************************************************************
- * FUNCTIONS
- */
+// Note: The defines should be updated accordingly if there is any change
+//       in the order of the items of the menu objects the items belong to.
+#define SP_ITEM_SELECT_CONN     TBM_ITEM(0)  // "Work with"
+#define SP_ITEM_AUTOCONNECT     TBM_ITEM(1)  // "Auto Connect"
 
 /*
- * Task creation function for the Simple Peripheral.
+ * Menus Declarations
  */
-extern void SimplePeripheral_createTask(void);
 
+/* Main Menu Object */
+extern tbmMenuObj_t spMenuMain;
 
-/*********************************************************************
-*********************************************************************/
+/* Items of (Main) */
+/* Action items are defined in simple_peripheral_menu.c */
+
+/*
+ * Menus Declarations
+ */
+
+/* Main Menu Object */
+extern tbmMenuObj_t spMenuMain;
+extern tbmMenuObj_t spMenuAutoConnect;
+extern tbmMenuObj_t spMenuSelectConn;
+extern tbmMenuObj_t spMenuPerConn;
+extern tbmMenuObj_t spMenuConnPhy;
+
+void SimplePeripheral_buildMenu(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* SIMPLEPERIPHERAL_H */
+#endif /* SIMPLE_PERIPHERAL_MENU_H */
+

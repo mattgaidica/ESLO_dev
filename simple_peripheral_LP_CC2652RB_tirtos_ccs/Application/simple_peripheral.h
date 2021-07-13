@@ -56,6 +56,7 @@ extern "C"
 /*********************************************************************
  * INCLUDES
  */
+#include <menu/two_btn_menu.h>
 
 /*********************************************************************
 *  EXTERNAL VARIABLES
@@ -78,6 +79,17 @@ extern "C"
  */
 extern void SimplePeripheral_createTask(void);
 
+/*
+ * Functions for menu action
+ */
+/* Actions for Menu: Choose connection to work with */
+bool SimplePeripheral_doSelectConn(uint8 index);
+
+/* Action for Menu: AutoConnect */
+bool SimplePeripheral_doAutoConnect(uint8_t index);
+
+/* Actions for Menu: Set PHY - Select */
+bool SimplePeripheral_doSetConnPhy(uint8 index);
 
 /*********************************************************************
 *********************************************************************/
