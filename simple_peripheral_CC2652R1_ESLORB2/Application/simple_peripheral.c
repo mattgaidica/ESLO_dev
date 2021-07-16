@@ -971,23 +971,35 @@ static uint8_t updateXlFromSettings(bool actOnInterrupt) {
 	return enableInterrupt;
 }
 
+static void ESLO_dumpMemUART() {
+	UART_Params uartParams;
+	UART_Params_init(&uartParams);
+//	uartParams.writeDataMode = UART_DATA_BINARY;
+	uartParams.baudRate = 115200;
+	uart = UART_open(CONFIG_UART_0, &uartParams); // UART_close(uart);
+
+	uint8_t i, rxByte;
+//	while(1) {
+//		UART_read(uart, &rxByte, sizeof(uint8_t));
+//
+//	}
+	for (i = 0; i < 255; i++) {
+		UART_write(uart, &i, sizeof(uint8_t));
+		GPIO_write(LED_1, !GPIO_read(LED_1));
+		Task_sleep(1000);
+
+	}
+
+	UART_close(CONFIG_UART_0);
+}
+
 static void ESLO_startup(void) {
 	GPIO_init();
 	SPI_init();
 	ADC_init();
 	NVS_init();
-	GPIO_write(LED_0, 0x01);
-
 	UART_init();
-	UART_Params uartParams;
-	UART_Params_init(&uartParams);
-	uartParams.writeDataMode = UART_DATA_BINARY;
-	uartParams.baudRate = 115200;
-//	uint8_t UARTbuf[2] = "p";
-//	uart = UART_open(CONFIG_UART_0, &uartParams); // UART_close(uart);
-//	while (1) {
-//		UART_write(uart, UARTbuf, 1);
-//	}
+	GPIO_write(LED_0, 0x01);
 
 // init Settings
 	esloSettings[Set_EEG1] = 0x00; // only one channel at init
@@ -1003,6 +1015,11 @@ static void ESLO_startup(void) {
 	/* NAND */
 	NAND_Init(CONFIG_SPI, _NAND_CS);
 	ret = FlashReadDeviceIdentification(&devId);
+
+	// break here if debug mode
+	if (GPIO_read(DEBUG) == 0x00) {
+		ESLO_dumpMemUART();
+	}
 
 	/* ADS129X - Defaults in SysConfig */
 	bool enableEEGInterrupt = updateEEGFromSettings(false); // do not turn on yet
@@ -1077,7 +1094,8 @@ static void ESLO_startup(void) {
 	eegInterrupt(enableEEGInterrupt); // turn on now
 	Util_startClock(&clkESLOPeriodic);
 
-	GPIO_write(LED_0, 0x00);
+	GPIO_write(LED_0, 0x01);
+	GPIO_write(LED_1, 0x01);
 }
 
 // assumes graceful watchdog
