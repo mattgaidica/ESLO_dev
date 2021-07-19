@@ -42,6 +42,11 @@
 			<locationURI>PARENT-4-PROJECT_LOC/Documents/Software/ESLO-Libraries/ESLO</locationURI>
 		</link>
 		<link>
+			<name>LSM6DSOX</name>
+			<type>2</type>
+			<locationURI>PARENT-4-PROJECT_LOC/Documents/Software/ESLO-Libraries/LSM6DSOX</locationURI>
+		</link>
+		<link>
 			<name>NAND</name>
 			<type>2</type>
 			<locationURI>PARENT-4-PROJECT_LOC/Documents/Software/ESLO-Libraries/NAND</locationURI>

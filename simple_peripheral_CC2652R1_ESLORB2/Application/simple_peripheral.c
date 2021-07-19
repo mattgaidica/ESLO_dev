@@ -47,6 +47,7 @@
 #include <ti_drivers_config.h>
 #include "simple_peripheral.h"
 #include "ti_ble_config.h"
+#include <ESLO.h>
 
 #define PTM_MODE 1 // disables NPI below
 #ifdef PTM_MODE
@@ -54,18 +55,6 @@
 #include "npi_ble.h"                // To enable transmission of messages to UART
 #include "icall_hci_tl.h"   // To allow ICall HCI Transport Layer
 #endif // PTM_MODE
-
-/***** ESLO *****/
-/* AXY */
-
-/* NAND */
-#include <SPI_NAND.h>
-#include <ESLO.h>
-#include <Serialize.h>
-
-/* ADS129X */
-#include <ADS129X.h>
-#include <Definitions.h>
 
 /*********************************************************************
  * MACROS
@@ -258,9 +247,6 @@ spClockEventData_t argRpaRead = { .event = SP_READ_RPA_EVT };
 // Per-handle connection info
 static spConnRec_t connList[MAX_NUM_BLE_CONNS];
 
-// Current connection handle as chosen by menu
-static uint16_t menuConnHandle = LINKDB_CONNHANDLE_INVALID;
-
 // List to store connection handles for set phy command status's
 static List_List setPhyCommStatList;
 
@@ -314,12 +300,9 @@ static uint8_t SimplePeripheral_addConn(uint16_t connHandle);
 static uint8_t SimplePeripheral_getConnIndex(uint16_t connHandle);
 static uint8_t SimplePeripheral_removeConn(uint16_t connHandle);
 static void SimplePeripheral_processParamUpdate(uint16_t connHandle);
-static status_t SimplePeripheral_startAutoPhyChange(uint16_t connHandle);
-static status_t SimplePeripheral_stopAutoPhyChange(uint16_t connHandle);
 static status_t SimplePeripheral_setPhy(uint16_t connHandle, uint8_t allPhys,
 		uint8_t txPhy, uint8_t rxPhy, uint16_t phyOpts);
 static uint8_t SimplePeripheral_clearConnListEntry(uint16_t connHandle);
-static void SimplePeripheral_connEvtCB(Gap_ConnEventRpt_t *pReport);
 static void SimplePeripheral_processConnEvt(Gap_ConnEventRpt_t *pReport);
 
 /*********************************************************************
@@ -364,7 +347,7 @@ static void readTherm();
 static void esloRecoverSession();
 static void esloUpdateNVS();
 static void esloResetVersion();
-static void WatchdogCallbackFxn();
+//static void WatchdogCallbackFxn();
 static void advSleep();
 
 // !! MOVED TO ESLO.H, consider doing for all
@@ -407,22 +390,17 @@ uint32_t axyCount = 0;
 uint32_t eegCount = 0;
 ReturnType ret; // NAND
 
-#define PACKET_SZ_EEG SIMPLEPROFILE_CHAR4_LEN / 4
 int32_t eeg1Buffer[PACKET_SZ_EEG];
 int32_t eeg2Buffer[PACKET_SZ_EEG];
 int32_t eeg3Buffer[PACKET_SZ_EEG];
 int32_t eeg4Buffer[PACKET_SZ_EEG];
 uint8_t iEEG = 0;
+uint8_t iEEGDiv = 0;
 
-#define PACKET_SZ_XL SIMPLEPROFILE_CHAR5_LEN / 4
 int32_t xlXBuffer[PACKET_SZ_XL];
 int32_t xlYBuffer[PACKET_SZ_XL];
 int32_t xlZBuffer[PACKET_SZ_XL];
-int32_t mgXBuffer[PACKET_SZ_XL];
-int32_t mgYBuffer[PACKET_SZ_XL];
-int32_t mgZBuffer[PACKET_SZ_XL];
 uint8_t iXL = 0;
-uint8_t iMG = 0;
 
 /* AXY Vars */
 
@@ -444,8 +422,17 @@ int32_t ch4;
 Watchdog_Params watchdogParams;
 Watchdog_Handle watchdogHandle;
 
-uint8_t xl_online = 1;
 UART_Handle uart = NULL;
+uint8_t xl_online = ESLO_FAIL;
+uint8_t eeg_online = ESLO_FAIL;
+uint8_t mem_online = ESLO_FAIL;
+
+stmdev_ctx_t dev_ctx_xl;
+
+static uint32_t nvsBuffer[3]; // esloSignature, esloVersion, esloAddr
+NVS_Handle nvsHandle;
+NVS_Attrs regionAttrs;
+NVS_Params nvsParams;
 
 static void advSleep() {
 	if (isAsleep) { // wake-up, enable advertise for short period
@@ -617,8 +604,6 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 	}
 	if (esloSettings[Set_TxPower] != *(esloSettingsNew + Set_TxPower)) {
 		esloSettings[Set_TxPower] = *(esloSettingsNew + Set_TxPower);
-//		GapAdvStatus = GapAdv_disable(advHandleLongRange);
-//		GapAdvStatus = GapAdv_disable(advHandleLegacy);
 		switch (*(esloSettingsNew + Set_TxPower)) {
 		case 0:
 			HCI_EXT_SetTxPowerCmd(HCI_EXT_TX_POWER_MINUS_20_DBM);
@@ -635,10 +620,6 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 		default:
 			break;
 		}
-//		GapAdvStatus = GapAdv_enable(advHandleLongRange,
-//				GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
-//		GapAdvStatus = GapAdv_enable(advHandleLegacy,
-//				GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
 	}
 	if (esloSettings[Set_AxyMode] != *(esloSettingsNew + Set_AxyMode)) {
 		// set it first, Xl function uses them
@@ -772,102 +753,55 @@ static void xlDataHandler(void) {
 	eslo_dt eslo_xlx;
 	eslo_dt eslo_xly;
 	eslo_dt eslo_xlz;
-	eslo_dt eslo_mgx;
-	eslo_dt eslo_mgy;
-	eslo_dt eslo_mgz;
+	lsm6dsox_status_t xl_status;
+	int16_t xl_data[3];
 
-//	if (USE_AXY(esloSettings) == ESLO_MODULE_ON) { // double check
-//		// XL
-//		lsm303agr_xl_status_get(&dev_ctx_xl, &reg.status_reg_a);
-//		if (reg.status_reg_a.zyxda) {
-//			memset(data_raw_acceleration.u8bit, 0x00, 3 * sizeof(int16_t));
-//			lsm303agr_acceleration_raw_get(&dev_ctx_xl,
-//					data_raw_acceleration.u8bit);
-//
-//			eslo_xlx.type = Type_AxyXlx;
-//			eslo_xlx.data = (uint32_t) data_raw_acceleration.i16bit[0];
-//			ESLO_Packet(eslo_xlx, &packet);
-//			xlXBuffer[iXL] = packet;
-//			if (!isPaired) {
-//				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_xlx);
-//			}
-//
-//			eslo_xly.type = Type_AxyXly;
-//			eslo_xly.data = (uint32_t) data_raw_acceleration.i16bit[1];
-//			ESLO_Packet(eslo_xly, &packet);
-//			xlYBuffer[iXL] = packet;
-//			if (!isPaired) {
-//				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_xly);
-//			}
-//
-//			eslo_xlz.type = Type_AxyXlz;
-//			eslo_xlz.data = (uint32_t) data_raw_acceleration.i16bit[2];
-//			ESLO_Packet(eslo_xlz, &packet);
-//			xlZBuffer[iXL] = packet;
-//			if (!isPaired) {
-//				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_xlz);
-//			}
-//			iXL++;
-//		}
-//
-//		// MG
-//		lsm303agr_mag_status_get(&dev_ctx_mg, &reg.status_reg_m);
-//		if (reg.status_reg_m.zyxda) {
-//			memset(data_raw_magnetic.u8bit, 0x00, 3 * sizeof(int16_t));
-//			lsm303agr_magnetic_raw_get(&dev_ctx_mg, data_raw_magnetic.u8bit);
-//
-//			eslo_mgx.type = Type_AxyMgx;
-//			eslo_mgx.data = (uint32_t) data_raw_magnetic.i16bit[0];
-//			ESLO_Packet(eslo_mgx, &packet);
-//			mgXBuffer[iMG] = packet;
-//			if (!isPaired) {
-//				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_mgx);
-//			}
-//
-//			eslo_mgy.type = Type_AxyMgy;
-//			eslo_mgy.data = (uint32_t) data_raw_magnetic.i16bit[1];
-//			ESLO_Packet(eslo_mgy, &packet);
-//			mgYBuffer[iMG] = packet;
-//			if (!isPaired) {
-//				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_mgy);
-//			}
-//
-//			//		float compassHeading = atan2f((float)data_raw_magnetic.i16bit[1], (float)data_raw_magnetic.i16bit[0]) * (180 / M_PI);
-//
-//			eslo_mgz.type = Type_AxyMgz;
-//			eslo_mgz.data = (uint32_t) data_raw_magnetic.i16bit[2];
-//			ESLO_Packet(eslo_mgz, &packet);
-//			mgZBuffer[iMG] = packet;
-//			if (!isPaired) {
-//				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_mgz);
-//			}
-//			iMG++;
-//		}
-//
-//		if (iXL == PACKET_SZ_XL) {
-//			if (isPaired) {
-//				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
-//				SIMPLEPROFILE_CHAR5_LEN, xlXBuffer);
-//				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
-//				SIMPLEPROFILE_CHAR5_LEN, xlYBuffer);
-//				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
-//				SIMPLEPROFILE_CHAR5_LEN, xlZBuffer);
-//			}
-//			iXL = 0;
-//		}
-//		if (iMG == PACKET_SZ_XL) {
-//			if (isPaired) {
-//				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
-//				SIMPLEPROFILE_CHAR5_LEN, mgXBuffer);
-//				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
-//				SIMPLEPROFILE_CHAR5_LEN, mgYBuffer);
-//				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
-//				SIMPLEPROFILE_CHAR5_LEN, mgZBuffer);
-//			}
-//			iMG = 0;
-//		}
-//		axyCount++;
-//	}
+	if (USE_AXY(esloSettings) == ESLO_MODULE_ON & xl_online) { // double check
+	// XL
+		lsm6dsox_status_get(&dev_ctx_xl, NULL, &xl_status);
+		if (xl_status.drdy_xl) {
+			lsm6dsox_acceleration_raw_get(&dev_ctx_xl, xl_data);
+
+			eslo_xlx.type = Type_AxyXlx;
+			eslo_xlx.data = (uint32_t) xl_data[0];
+			ESLO_Packet(eslo_xlx, &packet);
+			xlXBuffer[iXL] = packet;
+			if (!isPaired) {
+				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_xlx);
+			}
+
+			eslo_xly.type = Type_AxyXly;
+			eslo_xly.data = (uint32_t) (uint32_t) xl_data[1];
+			ESLO_Packet(eslo_xly, &packet);
+			xlYBuffer[iXL] = packet;
+			if (!isPaired) {
+				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_xly);
+			}
+
+			eslo_xlz.type = Type_AxyXlz;
+			eslo_xlz.data = (uint32_t) (uint32_t) xl_data[2];
+			ESLO_Packet(eslo_xlz, &packet);
+			xlZBuffer[iXL] = packet;
+			if (!isPaired) {
+				ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo_xlz);
+			}
+			iXL++;
+		}
+
+		if (iXL == PACKET_SZ_XL) {
+			if (isPaired) {
+				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+				SIMPLEPROFILE_CHAR5_LEN, xlXBuffer);
+				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+				SIMPLEPROFILE_CHAR5_LEN, xlYBuffer);
+				SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR5,
+				SIMPLEPROFILE_CHAR5_LEN, xlZBuffer);
+			}
+			iXL = 0;
+		}
+
+		axyCount++;
+	}
 }
 
 void eegDataReady(uint_least8_t index) {
@@ -904,16 +838,17 @@ static uint8_t updateEEGFromSettings(bool actOnInterrupt) {
 			Task_sleep(150000 / Clock_tickPeriod);
 			GPIO_setConfig(_EEG_CS,
 			GPIO_CFG_OUT_STD | GPIO_CFG_OUT_STR_LOW | GPIO_CFG_OUT_LOW); // !!consider rm now that 1.8v is supplied
-			ADS_init(CONFIG_SPI_EEG, _EEG_CS);
-			uint8 adsId = ADS_getDeviceID(); // 0x90 != adsId -> throw error?
+			eeg_online = ADS_init();
 			enableInterrupt = true;
 			if (actOnInterrupt) {
 				eegInterrupt(enableInterrupt);
 			}
 		}
 		// assumes this function is not called unless channel config has changed
-		ADS_enableChannels(esloSettings[Set_EEG1], esloSettings[Set_EEG2],
-				esloSettings[Set_EEG3], esloSettings[Set_EEG4]);
+		if (eeg_online) {
+			ADS_enableChannels(esloSettings[Set_EEG1], esloSettings[Set_EEG2],
+					esloSettings[Set_EEG3], esloSettings[Set_EEG4]);
+		}
 	}
 	if (USE_EEG(esloSettings) == ESLO_MODULE_OFF & shdnState == ESLO_HIGH) {
 		enableInterrupt = false;
@@ -937,37 +872,39 @@ static void xlInterrupt(bool enableInterrupt) {
 // !!REDO for ESLO_RB2
 static uint8_t updateXlFromSettings(bool actOnInterrupt) {
 	bool enableInterrupt;
-//
-//	if (USE_AXY(esloSettings) == ESLO_MODULE_ON && xl_online && mg_online) {
-//		lsm303agr_mag_operating_mode_set(&dev_ctx_mg,
-//				LSM303AGR_CONTINUOUS_MODE);
-//		lsm303agr_mag_data_rate_set(&dev_ctx_mg, LSM303AGR_MG_ODR_10Hz);
-//
-//		switch (esloSettings[Set_AxyMode]) {
-//		case 1:
-//			lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_1Hz);
-//			Util_rescheduleClock(&clkESLOAxy, 1000);
-//			break;
-//		case 2:
-//			lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_10Hz);
-//			Util_rescheduleClock(&clkESLOAxy, 100);
-//			break;
-//		default:
-//			break;
-//		}
-//		Util_startClock(&clkESLOAxy);
-//
-//		enableInterrupt = true;
-//		if (actOnInterrupt) {
-//			xlInterrupt(enableInterrupt);
-//		}
-//	} else {
-//		Util_stopClock(&clkESLOAxy);
-//		enableInterrupt = false;
-//		xlInterrupt(enableInterrupt); // always turn off before powering down
-//		lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_POWER_DOWN);
-//		lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_POWER_DOWN);
-//	}
+
+	if (USE_AXY(esloSettings) == ESLO_MODULE_ON & xl_online) {
+		switch (esloSettings[Set_AxyMode]) {
+		case 1:
+			lsm6dsox_xl_power_mode_set(&dev_ctx_xl,
+					LSM6DSOX_ULTRA_LOW_POWER_MD);
+			lsm6dsox_xl_data_rate_set(&dev_ctx_xl, LSM6DSOX_XL_ODR_1Hz6);
+			Util_rescheduleClock(&clkESLOAxy, 1000);
+			break;
+		case 2:
+			lsm6dsox_xl_power_mode_set(&dev_ctx_xl,
+					LSM6DSOX_LOW_NORMAL_POWER_MD);
+			lsm6dsox_xl_data_rate_set(&dev_ctx_xl, LSM6DSOX_XL_ODR_12Hz5);
+			Util_rescheduleClock(&clkESLOAxy, 100);
+			break;
+		default:
+			break;
+		}
+		Util_startClock(&clkESLOAxy);
+
+		enableInterrupt = true;
+		if (actOnInterrupt) {
+			xlInterrupt(enableInterrupt);
+		}
+	} else {
+		Util_stopClock(&clkESLOAxy);
+		enableInterrupt = false;
+		xlInterrupt(enableInterrupt); // always turn off before powering down
+		lsm6dsox_gy_power_mode_set(&dev_ctx_xl, LSM6DSOX_GY_NORMAL);
+		lsm6dsox_gy_data_rate_set(&dev_ctx_xl, LSM6DSOX_GY_ODR_OFF);
+		lsm6dsox_xl_power_mode_set(&dev_ctx_xl, LSM6DSOX_ULTRA_LOW_POWER_MD);
+		lsm6dsox_xl_data_rate_set(&dev_ctx_xl, LSM6DSOX_XL_ODR_OFF);
+	}
 	return enableInterrupt;
 }
 
@@ -978,7 +915,7 @@ static void ESLO_dumpMemUART() {
 	uartParams.baudRate = 115200;
 	uart = UART_open(CONFIG_UART_0, &uartParams); // UART_close(uart);
 
-	uint8_t i, rxByte;
+	uint8_t i;
 //	while(1) {
 //		UART_read(uart, &rxByte, sizeof(uint8_t));
 //
@@ -986,7 +923,7 @@ static void ESLO_dumpMemUART() {
 	for (i = 0; i < 255; i++) {
 		UART_write(uart, &i, sizeof(uint8_t));
 		GPIO_write(LED_1, !GPIO_read(LED_1));
-		Task_sleep(1000);
+		Task_sleep(100);
 
 	}
 
@@ -999,7 +936,16 @@ static void ESLO_startup(void) {
 	ADC_init();
 	NVS_init();
 	UART_init();
+
 	GPIO_write(LED_0, 0x01);
+
+	ESLO_SPI = ESLO_SPI_init(CONFIG_SPI);
+	ESLO_SPI_EEG = ESLO_SPI_EEG_init(CONFIG_SPI_EEG);
+
+	dev_ctx_xl.write_reg = write_reg;
+	dev_ctx_xl.read_reg = read_reg;
+	dev_ctx_xl.handle = (void*) ESLO_SPI;
+	xl_online = AXY_Init(dev_ctx_xl); // do this here, but init eeg as-needed
 
 // init Settings
 	esloSettings[Set_EEG1] = 0x00; // only one channel at init
@@ -1013,56 +959,17 @@ static void ESLO_startup(void) {
 	esloRecoverSession();
 
 	/* NAND */
-	NAND_Init(CONFIG_SPI, _NAND_CS);
-	ret = FlashReadDeviceIdentification(&devId);
+	mem_online = NAND_Init();
+	// !!what to do if NAND is not online???
 
 	// break here if debug mode
-	if (GPIO_read(DEBUG) == 0x00) {
+	if (GPIO_read(DEBUG) == ESLO_LOW) {
 		ESLO_dumpMemUART();
 	}
 
 	/* ADS129X - Defaults in SysConfig */
 	bool enableEEGInterrupt = updateEEGFromSettings(false); // do not turn on yet
 
-	/* AXY - init no matter what */
-//	AXY_Init(CONFIG_I2C_AXY);
-//	dev_ctx_xl.write_reg = platform_i2c_write;
-//	dev_ctx_xl.read_reg = platform_i2c_read;
-//	dev_ctx_xl.handle = (void*) LSM303AGR_I2C_ADD_XL;
-//	dev_ctx_mg.write_reg = platform_i2c_write;
-//	dev_ctx_mg.read_reg = platform_i2c_read;
-//	dev_ctx_mg.handle = (void*) LSM303AGR_I2C_ADD_MG;
-//
-//	reg.byte = 0;
-//	lsm303agr_xl_device_id_get(&dev_ctx_xl, &reg.byte);
-//	if (reg.byte == LSM303AGR_ID_XL) {
-//		lsm303agr_temperature_meas_set(&dev_ctx_xl, LSM303AGR_TEMP_ENABLE);
-//		lsm303agr_xl_block_data_update_set(&dev_ctx_xl, PROPERTY_ENABLE);
-//		lsm303agr_xl_full_scale_set(&dev_ctx_xl, LSM303AGR_2g);
-//		lsm303agr_xl_operating_mode_set(&dev_ctx_xl, LSM303AGR_HR_12bit);
-//		//	lsm303agr_xl_data_rate_set(&dev_ctx_xl, LSM303AGR_XL_ODR_10Hz); // !! Doesn't matter, updateXlFromSettings() updates them
-//	} else {
-//		xl_online = 0;
-//	}
-//
-//	reg.byte = 0;
-//	lsm303agr_mag_device_id_get(&dev_ctx_mg, &reg.byte);
-//	if (reg.byte == LSM303AGR_ID_MG) {
-//		/* Restore default configuration for magnetometer */
-//		lsm303agr_mag_reset_set(&dev_ctx_mg, PROPERTY_ENABLE);
-//		do {
-//			lsm303agr_mag_reset_get(&dev_ctx_mg, &reg.byte);
-//		} while (reg.byte);
-//
-//		lsm303agr_mag_block_data_update_set(&dev_ctx_mg, PROPERTY_ENABLE);
-//		//	lsm303agr_mag_data_rate_set(&dev_ctx_mg, LSM303AGR_MG_ODR_10Hz); // !! Doesn't matter, updateXlFromSettings() updates them
-//		lsm303agr_mag_set_rst_mode_set(&dev_ctx_mg,
-//				LSM303AGR_SENS_OFF_CANC_EVERY_ODR);
-//		lsm303agr_mag_offset_temp_comp_set(&dev_ctx_mg, PROPERTY_ENABLE);
-//		//	lsm303agr_mag_operating_mode_set(&dev_ctx_mg, LSM303AGR_CONTINUOUS_MODE); // LSM303AGR_POWER_DOWN, LSM303AGR_CONTINUOUS_MODE
-//	} else {
-//		mg_online = 0;
-//	}
 	ADC_Params_init(&adcParams_vBatt);
 	adc_vBatt = ADC_open(R_VBATT, &adcParams_vBatt);
 	if (adc_vBatt == NULL) {
@@ -1099,9 +1006,9 @@ static void ESLO_startup(void) {
 }
 
 // assumes graceful watchdog
-void WatchdogCallbackFxn(Watchdog_Handle handle) {
-	esloSleep();
-}
+//void WatchdogCallbackFxn(Watchdog_Handle handle) {
+//	esloSleep();
+//}
 
 /*********************************************************************
  * @fn      simple_peripheral_spin
@@ -2220,20 +2127,6 @@ static void SimplePeripheral_processPasscode(spPasscodeData_t *pPasscodeData) {
 }
 
 /*********************************************************************
- * @fn      SimplePeripheral_connEvtCB
- *
- * @brief   Connection event callback.
- *
- * @param pReport pointer to connection event report
- */
-static void SimplePeripheral_connEvtCB(Gap_ConnEventRpt_t *pReport) {
-// Enqueue the event for processing in the app context.
-	if (SimplePeripheral_enqueueMsg(SP_CONN_EVT, pReport) != SUCCESS) {
-		ICall_free(pReport);
-	}
-}
-
-/*********************************************************************
  * @fn      SimplePeripheral_processConnEvt
  *
  * @brief   Process connection event.
@@ -2447,8 +2340,6 @@ static uint8_t SimplePeripheral_removeConn(uint16_t connHandle) {
 		}
 		// Clear pending update requests from paramUpdateList
 		SimplePeripheral_clearPendingParamUpdate(connHandle);
-		// Stop Auto PHY Change
-		SimplePeripheral_stopAutoPhyChange(connHandle);
 		// Clear Connection List Entry
 		SimplePeripheral_clearConnListEntry(connHandle);
 	}
@@ -2644,62 +2535,7 @@ static void SimplePeripheral_initPHYRSSIArray(void) {
 		connList[index].connHandle = SP_INVALID_HANDLE;
 	}
 }
-/*********************************************************************
- // Set default PHY to 1M
- * @fn      SimplePeripheral_startAutoPhyChange
- *
- * @brief   Start periodic RSSI reads on a link.
- *
- * @param   connHandle - connection handle of link
- * @param   devAddr - device address
- *
- * @return  SUCCESS: Terminate started
- *          bleIncorrectMode: No link
- *          bleNoResources: No resources
- */
-static status_t SimplePeripheral_startAutoPhyChange(uint16_t connHandle) {
-	status_t status = FAILURE;
 
-// Get connection index from handle
-	uint8_t connIndex = SimplePeripheral_getConnIndex(connHandle);
-	SIMPLEPERIPHERAL_ASSERT(connIndex < MAX_NUM_BLE_CONNS);
-
-// Start Connection Event notice for RSSI calculation
-	status = Gap_RegisterConnEventCb(SimplePeripheral_connEvtCB,
-			GAP_CB_REGISTER, connHandle);
-
-// Flag in connection info if successful
-	if (status == SUCCESS) {
-		connList[connIndex].isAutoPHYEnable = TRUE;
-	}
-
-	return status;
-}
-
-/*********************************************************************
- * @fn      SimplePeripheral_stopAutoPhyChange
- *
- * @brief   Cancel periodic RSSI reads on a link.
- *
- * @param   connHandle - connection handle of link
- *
- * @return  SUCCESS: Operation successful
- *          bleIncorrectMode: No link
- */
-static status_t SimplePeripheral_stopAutoPhyChange(uint16_t connHandle) {
-// Get connection index from handle
-	uint8_t connIndex = SimplePeripheral_getConnIndex(connHandle);
-	SIMPLEPERIPHERAL_ASSERT(connIndex < MAX_NUM_BLE_CONNS);
-
-// Stop connection event notice
-	Gap_RegisterConnEventCb(NULL, GAP_CB_UNREGISTER, connHandle);
-
-// Also update the phychange request status for active RSSI tracking connection
-	connList[connIndex].phyCngRq = FALSE;
-	connList[connIndex].isAutoPHYEnable = FALSE;
-
-	return SUCCESS;
-}
 
 /*********************************************************************
  * @fn      SimplePeripheral_setPhy
