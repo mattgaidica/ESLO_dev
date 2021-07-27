@@ -550,19 +550,11 @@ static void esloSleep() {
 // right now zeros and sleep mode are same
 	uint8_t esloSettingsNew[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
 // carry over these settings
-	esloSettingsNew[Set_TxPower] = esloSettings[Set_TxPower];
 	esloSettingsNew[Set_AdvLong] = esloSettings[Set_AdvLong];
 // overwrite esloSettings and force sleep mode to take effect
 	mapEsloSettings(esloSettingsNew);
-
-// not sure of state right now, so just turn off LED
-	uint8_t setGPIO = 0x00;
-	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR1, sizeof(uint8_t), &setGPIO); // only sets parameter, does not cue LED change
-	GPIO_write(LED_0, setGPIO);
 }
 
-// note that ~Rec = sleep mode and anything in settings that needs to carry over has to be set in esloSleep()
-// since it by default overwrites esloSettings with all 0x00 (see Set_TxPower and Set_AdvLong)
 static void mapEsloSettings(uint8_t *esloSettingsNew) {
 	eslo_dt eslo;
 
@@ -602,25 +594,25 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 	if (esloSettings[Set_SleepWake] != *(esloSettingsNew + Set_SleepWake)) {
 		esloSettings[Set_SleepWake] = *(esloSettingsNew + Set_SleepWake);
 	}
-	if (esloSettings[Set_TxPower] != *(esloSettingsNew + Set_TxPower)) {
-		esloSettings[Set_TxPower] = *(esloSettingsNew + Set_TxPower);
-		switch (*(esloSettingsNew + Set_TxPower)) {
-		case 0:
-			HCI_EXT_SetTxPowerCmd(HCI_EXT_TX_POWER_MINUS_20_DBM);
-			break;
-		case 1:
-			HCI_EXT_SetTxPowerCmd(HCI_EXT_TX_POWER_MINUS_10_DBM);
-			break;
-		case 2:
-			HCI_EXT_SetTxPowerCmd(HCI_EXT_TX_POWER_0_DBM);
-			break;
-		case 3:
-			HCI_EXT_SetTxPowerCmd(HCI_EXT_TX_POWER_5_DBM);
-			break;
-		default:
-			break;
-		}
-	}
+//	if (esloSettings[Set_TxPower] != *(esloSettingsNew + Set_TxPower)) {
+//		esloSettings[Set_TxPower] = *(esloSettingsNew + Set_TxPower);
+//		switch (*(esloSettingsNew + Set_TxPower)) {
+//		case 0:
+//			HCI_EXT_SetTxPowerCmd(HCI_EXT_TX_POWER_MINUS_20_DBM);
+//			break;
+//		case 1:
+//			HCI_EXT_SetTxPowerCmd(HCI_EXT_TX_POWER_MINUS_10_DBM);
+//			break;
+//		case 2:
+//			HCI_EXT_SetTxPowerCmd(HCI_EXT_TX_POWER_0_DBM);
+//			break;
+//		case 3:
+//			HCI_EXT_SetTxPowerCmd(HCI_EXT_TX_POWER_5_DBM);
+//			break;
+//		default:
+//			break;
+//		}
+//	}
 	if (esloSettings[Set_AxyMode] != *(esloSettingsNew + Set_AxyMode)) {
 		// set it first, Xl function uses them
 		esloSettings[Set_AxyMode] = *(esloSettingsNew + Set_AxyMode);
@@ -949,7 +941,6 @@ static void ESLO_startup(void) {
 
 // init Settings
 	esloSettings[Set_EEG1] = 0x00; // only one channel at init
-	esloSettings[Set_TxPower] = 0x00; // Set in SysConfig and make it match here
 	esloSettings[Set_AxyMode] = 0x00;
 	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
 			esloSettings);
@@ -1001,8 +992,8 @@ static void ESLO_startup(void) {
 	eegInterrupt(enableEEGInterrupt); // turn on now
 	Util_startClock(&clkESLOPeriodic);
 
-	GPIO_write(LED_0, 0x01);
-	GPIO_write(LED_1, 0x01);
+	GPIO_write(LED_0, 0x00);
+	GPIO_write(LED_1, 0x00);
 }
 
 // assumes graceful watchdog
