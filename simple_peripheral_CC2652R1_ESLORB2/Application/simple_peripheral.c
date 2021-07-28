@@ -749,7 +749,7 @@ static void xlDataHandler(void) {
 	int16_t xl_data[3];
 
 	if (USE_AXY(esloSettings) == ESLO_MODULE_ON & xl_online) { // double check
-	// XL
+		// XL
 		lsm6dsox_status_get(&dev_ctx_xl, NULL, &xl_status);
 		if (xl_status.drdy_xl) {
 			lsm6dsox_acceleration_raw_get(&dev_ctx_xl, xl_data);
@@ -901,25 +901,35 @@ static uint8_t updateXlFromSettings(bool actOnInterrupt) {
 }
 
 static void ESLO_dumpMemUART() {
+	uint32_t i;
+	uint8_t k;
+	uint32_t exportAddr = 0; // block
 	UART_Params uartParams;
 	UART_Params_init(&uartParams);
 //	uartParams.writeDataMode = UART_DATA_BINARY;
 	uartParams.baudRate = 115200;
 	uart = UART_open(CONFIG_UART_0, &uartParams); // UART_close(uart);
 
-	uint8_t i;
+	for (k = 0; k < 10; k++) {
+		UART_write(uart, &k, sizeof(uint8_t));
+	}
+
+	while (exportAddr < esloAddr) { // read last page too
+		ret = FlashPageRead(exportAddr, readBuf);
+		for (i = 0; i < PAGE_DATA_SIZE; i++) {
+			UART_write(uart, &readBuf[i], sizeof(uint8_t));
+			GPIO_write(LED_1, !GPIO_read(LED_1));
+			Task_sleep(100);
+		}
+		exportAddr += 0x1000;
+	}
+
 //	while(1) {
 //		UART_read(uart, &rxByte, sizeof(uint8_t));
 //
 //	}
-	for (i = 0; i < 255; i++) {
-		UART_write(uart, &i, sizeof(uint8_t));
-		GPIO_write(LED_1, !GPIO_read(LED_1));
-		Task_sleep(100);
 
-	}
-
-	UART_close(CONFIG_UART_0);
+	UART_close(uart);
 }
 
 static void ESLO_startup(void) {
@@ -951,9 +961,9 @@ static void ESLO_startup(void) {
 
 	/* NAND */
 	mem_online = NAND_Init();
-	// !!what to do if NAND is not online???
+// !!what to do if NAND is not online???
 
-	// break here if debug mode
+// break here if debug mode
 	if (GPIO_read(DEBUG) == ESLO_LOW) {
 		ESLO_dumpMemUART();
 	}
@@ -983,7 +993,7 @@ static void ESLO_startup(void) {
 	watchdogParams.callbackFxn = NULL;
 	watchdogHandle = Watchdog_open(CONFIG_WATCHDOG_0, &watchdogParams);
 	if (watchdogHandle == NULL) {
-		// Spin forever
+// Spin forever
 //		while (1)
 //			;
 	}
@@ -1071,7 +1081,7 @@ static void SimplePeripheral_init(void) {
 	Util_constructClock(&clkESLOAxy, SimplePeripheral_clockHandler,
 	ES_AXY_PERIOD, 0, false, (UArg) &argESLOAxy);
 
-	// don't turn on because advertising is enabled on startup below, turn on at conn. terminate
+// don't turn on because advertising is enabled on startup below, turn on at conn. terminate
 	Util_constructClock(&clkESLOAdvSleep, SimplePeripheral_clockHandler,
 	ES_ADV_SLEEP_PERIOD, 0, false, (UArg) &argESLOAdvSleep);
 
@@ -1084,7 +1094,7 @@ static void SimplePeripheral_init(void) {
 	{
 		uint16_t paramUpdateDecision = DEFAULT_PARAM_UPDATE_REQ_DECISION;
 
-		// Pass all parameter update requests to the app for it to decide
+// Pass all parameter update requests to the app for it to decide
 		GAP_SetParamValue(GAP_PARAM_LINK_UPDATE_DECISION, paramUpdateDecision);
 	}
 
@@ -1143,14 +1153,14 @@ static void SimplePeripheral_init(void) {
 // Set default values for Data Length Extension
 // Extended Data Length Feature is already enabled by default
 	{
-		// Set initial values to maximum, RX is set to max. by default(251 octets, 2120us)
-		// Some brand smartphone is essentially needing 251/2120, so we set them here.
+// Set initial values to maximum, RX is set to max. by default(251 octets, 2120us)
+// Some brand smartphone is essentially needing 251/2120, so we set them here.
 #define APP_SUGGESTED_PDU_SIZE 251 //default is 27 octets(TX)
 #define APP_SUGGESTED_TX_TIME 2120 //default is 328us(TX)
 
-		// This API is documented in hci.h
-		// See the LE Data Length Extension section in the BLE5-Stack User's Guide for information on using this command:
-		// http://software-dl.ti.com/lprf/ble5stack-latest/
+// This API is documented in hci.h
+// See the LE Data Length Extension section in the BLE5-Stack User's Guide for information on using this command:
+// http://software-dl.ti.com/lprf/ble5stack-latest/
 		HCI_LE_WriteSuggestedDefaultDataLenCmd(APP_SUGGESTED_PDU_SIZE,
 				APP_SUGGESTED_TX_TIME);
 	}
@@ -1187,9 +1197,9 @@ static void SimplePeripheral_taskFxn(UArg a0, UArg a1) {
 	for (;;) {
 		uint32_t events;
 
-		// Waits for an event to be posted associated with the calling thread.
-		// Note that an event associated with a thread is posted when a
-		// message is queued to the message receive queue of the thread
+// Waits for an event to be posted associated with the calling thread.
+// Note that an event associated with a thread is posted when a
+// message is queued to the message receive queue of the thread
 		events = Event_pend(syncEvent, Event_Id_NONE, SP_ALL_EVENTS,
 		ICALL_TIMEOUT_FOREVER);
 
@@ -1258,12 +1268,12 @@ static uint8_t SimplePeripheral_processStackMsg(ICall_Hdr *pMsg) {
 		break;
 
 	case GATT_MSG_EVENT:
-		// Process GATT message
+// Process GATT message
 		safeToDealloc = SimplePeripheral_processGATTMsg((gattMsgEvent_t*) pMsg);
 		break;
 
 	case HCI_GAP_EVENT_EVENT: {
-		// Process HCI message
+// Process HCI message
 		switch (pMsg->status) {
 		case HCI_COMMAND_COMPLETE_EVENT_CODE:
 			// Process HCI Command Complete Events here
@@ -1331,7 +1341,7 @@ static uint8_t SimplePeripheral_processStackMsg(ICall_Hdr *pMsg) {
 	}
 
 	default:
-		// do nothing
+// do nothing
 		break;
 	}
 
@@ -1347,14 +1357,14 @@ static uint8_t SimplePeripheral_processStackMsg(ICall_Hdr *pMsg) {
  */
 static uint8_t SimplePeripheral_processGATTMsg(gattMsgEvent_t *pMsg) {
 	if (pMsg->method == ATT_FLOW_CTRL_VIOLATED_EVENT) {
-		// ATT request-response or indication-confirmation flow control is
-		// violated. All subsequent ATT requests or indications will be dropped.
-		// The app is informed in case it wants to drop the connection.
+// ATT request-response or indication-confirmation flow control is
+// violated. All subsequent ATT requests or indications will be dropped.
+// The app is informed in case it wants to drop the connection.
 
-		// Display the opcode of the message that caused the violation.
+// Display the opcode of the message that caused the violation.
 //    Display_printf(dispHandle, SP_ROW_STATUS_1, 0, "FC Violated: %d", pMsg->msg.flowCtrlEvt.opcode);
 	} else if (pMsg->method == ATT_MTU_UPDATED_EVENT) {
-		// MTU size updated
+// MTU size updated
 //    Display_printf(dispHandle, SP_ROW_STATUS_1, 0, "MTU Size: %d", pMsg->msg.mtuEvt.MTU);
 	}
 
@@ -1409,13 +1419,13 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 		SimplePeripheral_updateRPA();
 		break;
 	case SP_SEND_PARAM_UPDATE_EVT: {
-		// Extract connection handle from data
+// Extract connection handle from data
 		uint16_t connHandle =
 				*(uint16_t*) (((spClockEventData_t*) pMsg->pData)->data);
 
 		SimplePeripheral_processParamUpdate(connHandle);
 
-		// This data is not dynamically allocated
+// This data is not dynamically allocated
 		dealloc = FALSE;
 		break;
 	}
@@ -1443,7 +1453,7 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 		advSleep();
 		break;
 	default:
-		// Do nothing.
+// Do nothing.
 		break;
 	}
 
@@ -1566,7 +1576,7 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 		gapEstLinkReqEvent_t *pPkt = (gapEstLinkReqEvent_t*) pMsg;
 
 		BLE_LOG_INT_TIME(0, BLE_LOG_MODULE_APP, "APP : ---- got GAP_LINK_ESTABLISHED_EVENT", 0);
-		// Display the amount of current connections
+// Display the amount of current connections
 		uint8_t numActive = linkDB_NumActive("");
 //      Display_printf(dispHandle, SP_ROW_STATUS_2, 0, "Num Conns: %d",
 //                     (uint16_t)numActive);
@@ -1610,16 +1620,16 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 	case GAP_LINK_TERMINATED_EVENT: {
 		gapTerminateLinkEvent_t *pPkt = (gapTerminateLinkEvent_t*) pMsg;
 
-		// Display the amount of current connections
+// Display the amount of current connections
 		uint8_t numActive = linkDB_NumActive("");
 //      Display_printf(dispHandle, SP_ROW_STATUS_1, 0, "Device Disconnected!");
 //      Display_printf(dispHandle, SP_ROW_STATUS_2, 0, "Num Conns: %d",
 //                     (uint16_t)numActive);
 
-		// Remove the connection from the list and disable RSSI if needed
+// Remove the connection from the list and disable RSSI if needed
 		SimplePeripheral_removeConn(pPkt->connectionHandle);
 
-		// If no active connections
+// If no active connections
 		if (numActive == 0) {
 			// Stop periodic clock
 			Util_stopClock(&clkNotifyVitals);
@@ -1658,8 +1668,8 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 		rsp.connectionHandle = pReq->req.connectionHandle;
 		rsp.signalIdentifier = pReq->req.signalIdentifier;
 
-		// Only accept connection intervals with slave latency of 0
-		// This is just an example of how the application can send a response
+// Only accept connection intervals with slave latency of 0
+// This is just an example of how the application can send a response
 		if (pReq->req.connLatency == 0) {
 			rsp.intervalMin = pReq->req.intervalMin;
 			rsp.intervalMax = pReq->req.intervalMax;
@@ -1670,7 +1680,7 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 			rsp.accepted = FALSE;
 		}
 
-		// Send Reply
+// Send Reply
 		VOID GAP_UpdateLinkParamReqReply(&rsp);
 
 		break;
@@ -1679,7 +1689,7 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 	case GAP_LINK_PARAM_UPDATE_EVENT: {
 		gapLinkUpdateEvent_t *pPkt = (gapLinkUpdateEvent_t*) pMsg;
 
-		// Get the address from the connection handle
+// Get the address from the connection handle
 		linkDBInfo_t linkInfo;
 		linkDB_GetInfo(pPkt->connectionHandle, &linkInfo);
 
@@ -1694,7 +1704,7 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 //                       Util_convertBdAddr2Str(linkInfo.addr));
 		}
 
-		// Check if there are any queued parameter updates
+// Check if there are any queued parameter updates
 		spConnHandleEntry_t *connHandleEntry = (spConnHandleEntry_t*) List_get(
 				&paramUpdateList);
 		if (connHandleEntry != NULL) {
@@ -1798,7 +1808,7 @@ static void SimplePeripheral_processCharValueChangeEvt(uint8_t paramId) {
 		SimplePeripheral_enqueueMsg(ES_EXPORT_DATA, NULL);
 		break;
 	default:
-		// should not reach here!
+// should not reach here!
 		break;
 	}
 	if (ret) {
@@ -1861,7 +1871,7 @@ static void ESLO_performPeriodicTask() {
 	if (vbatt_uV < V_DROPOUT || esloAddr >= FLASH_SIZE) {
 		esloSleep(); // good night
 		Util_stopClock(&clkESLOPeriodic); // never come back unless user initiates it
-		// set parameter to notify condition?
+// set parameter to notify condition?
 	}
 }
 
@@ -1899,32 +1909,32 @@ static void SimplePeripheral_clockHandler(UArg arg) {
 	spClockEventData_t *pData = (spClockEventData_t*) arg;
 
 	if (pData->event == SP_PERIODIC_EVT) {
-		// Start the next period
+// Start the next period
 		Util_startClock(&clkNotifyVitals);
-		// Post event to wake up the application
+// Post event to wake up the application
 		SimplePeripheral_enqueueMsg(SP_PERIODIC_EVT, NULL);
 	} else if (pData->event == ES_PERIODIC_EVT) {
-		// Start the next period
+// Start the next period
 		Util_startClock(&clkESLOPeriodic);
-		// Post event to wake up the application
+// Post event to wake up the application
 		SimplePeripheral_enqueueMsg(ES_PERIODIC_EVT, NULL);
 	} else if (pData->event == ES_AXY_EVT) {
-		// Start the next period
+// Start the next period
 		Util_startClock(&clkESLOAxy);
-		// Post event to wake up the application
+// Post event to wake up the application
 		SimplePeripheral_enqueueMsg(ES_AXY_EVT, NULL);
 	} else if (pData->event == SP_READ_RPA_EVT) {
-		// Start the next period
+// Start the next period
 		Util_startClock(&clkRpaRead);
-		// Post event to read the current RPA
+// Post event to read the current RPA
 		SimplePeripheral_enqueueMsg(SP_READ_RPA_EVT, NULL);
 	} else if (pData->event == ES_ADV_SLEEP) {
-		// Start the next period
+// Start the next period
 		Util_startClock(&clkESLOAdvSleep);
-		// Post event to wake up the application
+// Post event to wake up the application
 		SimplePeripheral_enqueueMsg(ES_ADV_SLEEP, NULL);
 	} else if (pData->event == SP_SEND_PARAM_UPDATE_EVT) {
-		// Send message to app
+// Send message to app
 		SimplePeripheral_enqueueMsg(SP_SEND_PARAM_UPDATE_EVT, pData);
 	}
 }
@@ -2019,7 +2029,7 @@ static void SimplePeripheral_pairStateCb(uint16_t connHandle, uint8_t state,
 		pData->connHandle = connHandle;
 		pData->status = status;
 
-		// Queue the event.
+// Queue the event.
 		if (SimplePeripheral_enqueueMsg(SP_PAIR_STATE_EVT, pData) != SUCCESS) {
 			ICall_free(pData);
 		}
@@ -2046,7 +2056,7 @@ static void SimplePeripheral_passcodeCb(uint8_t *pDeviceAddr,
 		pData->uiOutputs = uiOutputs;
 		pData->numComparison = numComparison;
 
-		// Enqueue the event.
+// Enqueue the event.
 		if (SimplePeripheral_enqueueMsg(SP_PASSCODE_EVT, pData) != SUCCESS) {
 			ICall_free(pData);
 		}
@@ -2135,7 +2145,7 @@ static void SimplePeripheral_processConnEvt(Gap_ConnEventRpt_t *pReport) {
 
 // If auto phy change is enabled
 	if (connList[connIndex].isAutoPHYEnable == TRUE) {
-		// Read the RSSI
+// Read the RSSI
 		HCI_ReadRssiCmd(pReport->handle);
 	}
 }
@@ -2157,7 +2167,7 @@ static status_t SimplePeripheral_enqueueMsg(uint8_t event, void *pData) {
 		pMsg->event = event;
 		pMsg->pData = pData;
 
-		// Enqueue the message.
+// Enqueue the message.
 		success = Util_enqueueMsg(appMsgQueueHandle, syncEvent,
 				(uint8_t*) pMsg);
 		return (success) ? SUCCESS : FAILURE;
@@ -2256,7 +2266,7 @@ static uint8_t SimplePeripheral_clearConnListEntry(uint16_t connHandle) {
 	uint8_t connIndex = MAX_NUM_BLE_CONNS;
 
 	if (connHandle != LINKDB_CONNHANDLE_ALL) {
-		// Get connection index from handle
+// Get connection index from handle
 		connIndex = SimplePeripheral_getConnIndex(connHandle);
 		if (connIndex >= MAX_NUM_BLE_CONNS) {
 			return (bleInvalidRange);
@@ -2329,9 +2339,9 @@ static uint8_t SimplePeripheral_removeConn(uint16_t connHandle) {
 			// Free ParamUpdateEventData
 			ICall_free(connList[connIndex].pParamUpdateEventData);
 		}
-		// Clear pending update requests from paramUpdateList
+// Clear pending update requests from paramUpdateList
 		SimplePeripheral_clearPendingParamUpdate(connHandle);
-		// Clear Connection List Entry
+// Clear Connection List Entry
 		SimplePeripheral_clearConnListEntry(connHandle);
 	}
 
@@ -2406,7 +2416,7 @@ static void SimplePeripheral_processCmdCompleteEvt(hciEvt_CmdComplete_t *pMsg) {
 	case HCI_READ_RSSI: {
 		int8 rssi = (int8) pMsg->pReturnParam[3];
 
-		// Display RSSI value, if RSSI is higher than threshold, change to faster PHY
+// Display RSSI value, if RSSI is higher than threshold, change to faster PHY
 		if (status == SUCCESS) {
 			uint16_t handle = BUILD_UINT16(pMsg->pReturnParam[1],
 					pMsg->pReturnParam[2]);
@@ -2527,7 +2537,6 @@ static void SimplePeripheral_initPHYRSSIArray(void) {
 	}
 }
 
-
 /*********************************************************************
  * @fn      SimplePeripheral_setPhy
  *
@@ -2543,10 +2552,10 @@ static status_t SimplePeripheral_setPhy(uint16_t connHandle, uint8_t allPhys,
 	if (connHandleEntry) {
 		connHandleEntry->connHandle = connHandle;
 
-		// Add entry to the phy command status list
+// Add entry to the phy command status list
 		List_put(&setPhyCommStatList, (List_Elem*) connHandleEntry);
 
-		// Send PHY Update
+// Send PHY Update
 		HCI_LE_SetPhyCmd(connHandle, allPhys, txPhy, rxPhy, phyOpts);
 	}
 
@@ -2567,7 +2576,7 @@ static void SimplePeripheral_updatePHYStat(uint16_t eventCode, uint8_t *pMsg) {
 
 	switch (eventCode) {
 	case HCI_LE_SET_PHY: {
-		// Get connection handle from list
+// Get connection handle from list
 		spConnHandleEntry_t *connHandleEntry = (spConnHandleEntry_t*) List_get(
 				&setPhyCommStatList);
 
@@ -2593,7 +2602,7 @@ static void SimplePeripheral_updatePHYStat(uint16_t eventCode, uint8_t *pMsg) {
 		break;
 	}
 
-		// LE Event - a Phy update has completed or failed
+// LE Event - a Phy update has completed or failed
 	case HCI_BLE_PHY_UPDATE_COMPLETE_EVENT: {
 		hciEvt_BLEPhyUpdateComplete_t *pPUC =
 				(hciEvt_BLEPhyUpdateComplete_t*) pMsg;
