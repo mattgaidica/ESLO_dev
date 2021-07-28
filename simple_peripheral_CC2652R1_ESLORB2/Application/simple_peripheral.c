@@ -350,13 +350,6 @@ static void esloResetVersion();
 //static void WatchdogCallbackFxn();
 static void advSleep();
 
-// !! MOVED TO ESLO.H, consider doing for all
-//NVS_Handle nvsHandle;
-//NVS_Attrs regionAttrs;
-//NVS_Params nvsParams;
-//static uint32_t nvsBuffer[3]; // esloSignature, esloVersion, esloAddr
-//uint32_t ESLOSignature = 0xE123E123; // something unique
-
 static Clock_Struct clkESLOPeriodic;
 spClockEventData_t argESLOPeriodic = { .event = ES_PERIODIC_EVT };
 
@@ -1591,11 +1584,6 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 //        Display_printf(dispHandle, SP_ROW_STATUS_1, 0, "Connected to %s",
 //                       Util_convertBdAddr2Str(pPkt->devAddr));
 			isPaired = true;
-			// !! temporary: turn off LED once connected
-			uint8_t setGPIO = 0x00;
-			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR1, sizeof(uint8_t),
-					&setGPIO); // only sets parameter, does not cue LED change
-			GPIO_write(LED_0, setGPIO);
 
 			// recover old settings
 			mapEsloSettings(esloSettingsSleep);
