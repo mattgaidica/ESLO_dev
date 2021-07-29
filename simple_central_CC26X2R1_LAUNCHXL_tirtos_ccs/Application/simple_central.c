@@ -269,7 +269,7 @@ static groupListElem_t *memberInProg;
 NVS_Handle nvsHandle;
 NVS_Attrs regionAttrs;
 NVS_Params nvsParams;
-
+uint32_t nvsOffset = 0;
 /*********************************************************************
  * LOCAL FUNCTIONS
  */
@@ -339,12 +339,17 @@ static gapBondCBs_t bondMgrCBs = { SimpleCentral_passcodeCb, // Passcode callbac
 void ESLO_LogAdvertisement(GapScan_Evt_AdvRpt_t *pAdvRpt) {
 	uint8_t payload[11];
 	uint32_t curTime = 0xBABEBABE;
-	// construct payload
 
-	memcpy(payload, &pAdvRpt->rssi, sizeof(int8_t));
-	memcpy(payload + 1, &curTime, sizeof(uint32_t));
-	memcpy(payload + 5, &pAdvRpt->addr, 6 * sizeof(uint8_t));
-	NVS_erase(nvsHandle, 0, regionAttrs.sectorSize);
+	// construct payload
+	memcpy(payload, &pAdvRpt->addr, 6 * sizeof(uint8_t));
+	memcpy(payload + 6, &curTime, sizeof(uint32_t));
+	memcpy(payload + 10, &pAdvRpt->rssi, sizeof(int8_t));
+	// handle erase
+	NVS_erase(nvsHandle, nvsOffset, regionAttrs.sectorSize);
+	// write payload
+	NVS_write(nvsHandle, nvsOffset, (void *) payload, sizeof(payload),
+	            NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
+	nvsOffset += sizeof(payload);
 }
 
 /*********************************************************************
