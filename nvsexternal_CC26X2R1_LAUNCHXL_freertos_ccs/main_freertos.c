@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Texas Instruments Incorporated
+ * Copyright (c) 2016-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,12 +29,68 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#ifndef __SPLASH_IMAGE_H__
-#define __SPLASH_IMAGE_H__
 
-#include <ti/grlib/grlib.h>
+/*
+ *  ======== main_freertos.c ========
+ */
+#include <stdint.h>
 
-// Reference to the image, for use by GrLib
-extern const Graphics_Image splashImage;
+#ifdef __ICCARM__
+#include <DLib_Threads.h>
+#endif
 
-#endif // __SPLASH_IMAGE_H__
+/* POSIX Header files */
+#include <pthread.h>
+
+/* RTOS header files */
+#include <FreeRTOS.h>
+#include <task.h>
+
+#include <ti/drivers/Board.h>
+
+extern void *mainThread(void *arg0);
+
+/* Stack size in bytes */
+#define THREADSTACKSIZE   1024
+
+/*
+ *  ======== main ========
+ */
+int main(void)
+{
+    pthread_t           thread;
+    pthread_attr_t      attrs;
+    struct sched_param  priParam;
+    int                 retc;
+
+    /* initialize the system locks */
+#ifdef __ICCARM__
+    __iar_Initlocks();
+#endif
+
+    Board_init();
+
+    /* Initialize the attributes structure with default values */
+    pthread_attr_init(&attrs);
+
+    /* Set priority, detach state, and stack size attributes */
+    priParam.sched_priority = 1;
+    retc = pthread_attr_setschedparam(&attrs, &priParam);
+    retc |= pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
+    retc |= pthread_attr_setstacksize(&attrs, THREADSTACKSIZE);
+    if (retc != 0) {
+        /* failed to set attributes */
+        while (1) {}
+    }
+
+    retc = pthread_create(&thread, &attrs, mainThread, NULL);
+    if (retc != 0) {
+        /* pthread_create() failed */
+        while (1) {}
+    }
+
+    /* Start the FreeRTOS scheduler */
+    vTaskStartScheduler();
+
+    return (0);
+}

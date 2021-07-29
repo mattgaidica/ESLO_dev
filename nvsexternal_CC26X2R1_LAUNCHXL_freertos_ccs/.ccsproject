@@ -12,7 +12,7 @@
 	<createSlaveProjects value=""/>
 	<ignoreDefaultDeviceSettings value="true"/>
 	<ignoreDefaultCCSSettings value="true"/>
-	<templateProperties value="id=display_CC26X2R1_LAUNCHXL_tirtos_ccs.projectspec.display_CC26X2R1_LAUNCHXL_tirtos_ccs,buildProfile=release,isHybrid=true"/>
-	<origin value="/Users/matt/ti/simplelink_cc13x2_26x2_sdk_5_10_00_48/examples/rtos/CC26X2R1_LAUNCHXL/drivers/display/tirtos/ccs/display_CC26X2R1_LAUNCHXL_tirtos_ccs.projectspec"/>
+	<templateProperties value="id=nvsexternal_CC26X2R1_LAUNCHXL_freertos_ccs.projectspec.nvsexternal_CC26X2R1_LAUNCHXL_freertos_ccs,buildProfile=release,isHybrid=true"/>
+	<origin value="/Users/matt/ti/simplelink_cc13x2_26x2_sdk_5_20_00_52/examples/rtos/CC26X2R1_LAUNCHXL/drivers/nvsexternal/freertos/ccs/nvsexternal_CC26X2R1_LAUNCHXL_freertos_ccs.projectspec"/>
 	<filesToOpen value=""/>
 </projectOptions>
