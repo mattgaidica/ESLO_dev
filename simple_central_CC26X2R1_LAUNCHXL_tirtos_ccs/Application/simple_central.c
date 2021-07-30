@@ -23,6 +23,7 @@
 #include "osal_list.h"
 #include <ti_drivers_config.h>
 #include <ti/drivers/NVS.h>
+#include <ti/drivers/GPIO.h>
 
 #include "ti_ble_config.h"
 #include "ble_user_config.h"
@@ -39,8 +40,10 @@
  * CONSTANTS
  */
 // Application events
-static uint8_t ESLO_PREFIX[2] = { 0xEE, 0xFF };
+static uint8_t ESLO_PREFIX[2] = { 0xEE, 0xEE };
+#define BASE_ADDR_LOC	0xFF000
 
+#define BASE_EVT_INC_TIME		   0x01
 #define SC_EVT_SCAN_ENABLED        0x02
 #define SC_EVT_SCAN_DISABLED       0x03
 #define SC_EVT_ADV_REPORT          0x04
@@ -57,6 +60,8 @@ static uint8_t ESLO_PREFIX[2] = { 0xEE, 0xFF };
 
 #define SC_ALL_EVENTS                        (SC_ICALL_EVT           | \
                                               SC_QUEUE_EVT)
+
+#define BASE_TIME_INTERVAL					1000 // milliseconds
 
 // 1.28 sec unit. Range: 0x00-0xffff, where 0x00 is continuously scanning. See SimpleCentral_doDiscoverDevices()
 #define BASE_SCAN_PERIOD					5
@@ -270,6 +275,9 @@ NVS_Handle nvsHandle;
 NVS_Attrs regionAttrs;
 NVS_Params nvsParams;
 uint32_t nvsOffset = 0;
+
+uint32_t curTime = 0;
+
 /*********************************************************************
  * LOCAL FUNCTIONS
  */
@@ -337,19 +345,27 @@ static gapBondCBs_t bondMgrCBs = { SimpleCentral_passcodeCb, // Passcode callbac
  */
 
 void ESLO_LogAdvertisement(GapScan_Evt_AdvRpt_t *pAdvRpt) {
-	uint8_t payload[11];
-	uint32_t curTime = 0xBABEBABE;
-
+	uint8_t payload[16] = { 0x00 };
+	GPIO_write(CONFIG_GPIO_LEDG, 1);
 	// construct payload
 	memcpy(payload, &pAdvRpt->addr, 6 * sizeof(uint8_t));
 	memcpy(payload + 6, &curTime, sizeof(uint32_t));
 	memcpy(payload + 10, &pAdvRpt->rssi, sizeof(int8_t));
+	if (nvsOffset > regionAttrs.sectorSize) {
+		nvsOffset = 0; // wrap data or first time running
+	}
 	// handle erase
-	NVS_erase(nvsHandle, nvsOffset, regionAttrs.sectorSize);
+	if (nvsOffset % regionAttrs.sectorSize == 0) {
+		NVS_erase(nvsHandle, nvsOffset, regionAttrs.sectorSize);
+	}
 	// write payload
-	NVS_write(nvsHandle, nvsOffset, (void *) payload, sizeof(payload),
-	            NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
+	NVS_write(nvsHandle, nvsOffset, (void*) payload, sizeof(payload),
+	NVS_WRITE_POST_VERIFY);
 	nvsOffset += sizeof(payload);
+	// update location for power lapse
+	NVS_write(nvsHandle, BASE_ADDR_LOC, (void*) &nvsOffset, sizeof(nvsOffset),
+	NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
+
 }
 
 /*********************************************************************
@@ -401,7 +417,7 @@ static void SimpleCentral_autoConnect(void) {
 					osal_list_remove(&groupList, (osal_list_elem*) tempMember);
 					ICall_free(tempMember);
 				} else {
-					//Save pointer to connection in progress untill connection is established.
+					//Save pointer to connection in progress until connection is established.
 					memberInProg = tempMember;
 				}
 			}
@@ -533,10 +549,21 @@ static void SimpleCentral_init(void) {
 	// Initialize GAP layer for Central role and register to receive GAP events
 	GAP_DeviceInit(GAP_PROFILE_CENTRAL, selfEntity, addrMode, &pRandomAddress);
 
+	GPIO_init();
+
 	NVS_init();
 	NVS_Params_init(&nvsParams);
 	nvsHandle = NVS_open(CONFIG_NVSEXTERNAL, &nvsParams);
 	NVS_getAttrs(nvsHandle, &regionAttrs);
+
+//	if (GPIO_read(CONFIG_GPIO_BTN1) == 0x00) {
+//		NVS_write(nvsHandle, BASE_ADDR_LOC, (void*) &addrResetToZero,
+//				sizeof(nvsOffset), NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
+//		nvsOffset = 0; // reset for this session
+//		GPIO_write(CONFIG_GPIO_LEDR, 1);
+//	}
+
+	NVS_read(nvsHandle, BASE_ADDR_LOC, &nvsOffset, sizeof(nvsOffset));
 
 //  dispHandle = Display_open(Display_Type_ANY, NULL);
 }
@@ -1023,6 +1050,9 @@ static void SimpleCentral_processGapMsg(gapEventHdr_t *pMsg) {
 			Util_constructClock(&clkRpaRead, SimpleCentral_clockHandler,
 			READ_RPA_PERIOD, 0, true, SC_EVT_READ_RPA);
 		}
+		// duration = period
+		Util_constructClock(&clkRpaRead, SimpleCentral_clockHandler,
+		BASE_TIME_INTERVAL, BASE_TIME_INTERVAL, true, BASE_EVT_INC_TIME);
 		SimpleCentral_doDiscoverDevices(NULL);
 		break;
 	}
@@ -1840,6 +1870,20 @@ void SimpleCentral_clockHandler(UArg arg) {
 		Util_startClock(&clkRpaRead);
 		// Let the application handle the event
 		SimpleCentral_enqueueMsg(SC_EVT_READ_RPA, 0, NULL);
+		break;
+
+	case BASE_EVT_INC_TIME:
+		curTime += BASE_TIME_INTERVAL / 1000; // low overhead, no enqueue
+		GPIO_write(CONFIG_GPIO_LEDG, 0); // toggled on for ESLO advertisement
+		GPIO_write(CONFIG_GPIO_LEDR, 0);
+
+		if (GPIO_read(CONFIG_GPIO_BTN1) == 0x00) {
+			nvsOffset = 0; // reset for this session
+			NVS_write(nvsHandle, BASE_ADDR_LOC, (void*) &nvsOffset,
+					sizeof(nvsOffset), NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
+
+			GPIO_write(CONFIG_GPIO_LEDR, 1);
+		}
 		break;
 
 	default:
