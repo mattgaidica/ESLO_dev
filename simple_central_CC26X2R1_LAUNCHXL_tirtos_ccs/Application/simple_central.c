@@ -555,20 +555,6 @@ static void SimpleCentral_init(void) {
 	nvsHandle = NVS_open(CONFIG_NVSEXTERNAL, &nvsParams);
 	NVS_getAttrs(nvsHandle, &regionAttrs);
 
-	NVS_write(nvsHandle, BASE_ADDR_LOC, (void*) &nvsOffset, sizeof(nvsOffset),
-	NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
-	NVS_read(nvsHandle, BASE_ADDR_LOC, &nvsOffset, sizeof(nvsOffset));
-
-	nvsOffset = 128;
-
-	NVS_write(nvsHandle, BASE_ADDR_LOC, (void*) &nvsOffset, sizeof(nvsOffset),
-	NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
-	NVS_read(nvsHandle, BASE_ADDR_LOC, &nvsOffset, sizeof(nvsOffset));
-
-	nvsOffset = 901;
-
-	NVS_write(nvsHandle, BASE_ADDR_LOC, (void*) &nvsOffset, sizeof(nvsOffset),
-	NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
 	NVS_read(nvsHandle, BASE_ADDR_LOC, &nvsOffset, sizeof(nvsOffset));
 
 //  dispHandle = Display_open(Display_Type_ANY, NULL);
