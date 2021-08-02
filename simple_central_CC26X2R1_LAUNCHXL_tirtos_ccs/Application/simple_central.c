@@ -361,11 +361,10 @@ void ESLO_LogAdvertisement(GapScan_Evt_AdvRpt_t *pAdvRpt) {
 	// write payload
 	NVS_write(nvsHandle, nvsOffset, (void*) payload, sizeof(payload),
 	NVS_WRITE_POST_VERIFY);
-	nvsOffset += sizeof(payload);
 	// update location for power lapse
 	NVS_write(nvsHandle, BASE_ADDR_LOC, (void*) &nvsOffset, sizeof(nvsOffset),
 	NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
-
+	nvsOffset += sizeof(payload);
 }
 
 /*********************************************************************
@@ -556,13 +555,20 @@ static void SimpleCentral_init(void) {
 	nvsHandle = NVS_open(CONFIG_NVSEXTERNAL, &nvsParams);
 	NVS_getAttrs(nvsHandle, &regionAttrs);
 
-//	if (GPIO_read(CONFIG_GPIO_BTN1) == 0x00) {
-//		NVS_write(nvsHandle, BASE_ADDR_LOC, (void*) &addrResetToZero,
-//				sizeof(nvsOffset), NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
-//		nvsOffset = 0; // reset for this session
-//		GPIO_write(CONFIG_GPIO_LEDR, 1);
-//	}
+	NVS_write(nvsHandle, BASE_ADDR_LOC, (void*) &nvsOffset, sizeof(nvsOffset),
+	NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
+	NVS_read(nvsHandle, BASE_ADDR_LOC, &nvsOffset, sizeof(nvsOffset));
 
+	nvsOffset = 128;
+
+	NVS_write(nvsHandle, BASE_ADDR_LOC, (void*) &nvsOffset, sizeof(nvsOffset),
+	NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
+	NVS_read(nvsHandle, BASE_ADDR_LOC, &nvsOffset, sizeof(nvsOffset));
+
+	nvsOffset = 901;
+
+	NVS_write(nvsHandle, BASE_ADDR_LOC, (void*) &nvsOffset, sizeof(nvsOffset),
+	NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
 	NVS_read(nvsHandle, BASE_ADDR_LOC, &nvsOffset, sizeof(nvsOffset));
 
 //  dispHandle = Display_open(Display_Type_ANY, NULL);

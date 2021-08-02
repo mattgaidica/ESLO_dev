@@ -64,11 +64,12 @@
  * CONSTANTS
  */
 // How often to perform periodic event (in ms)
-#define SP_PERIODIC_EVT_PERIOD               3000
-#define ES_PERIODIC_EVT_PERIOD				 60000
-#define ES_AXY_PERIOD				 		 1000
-#define ES_ADV_SLEEP_PERIOD					 60000
-#define ES_ADV_AWAKE_PERIOD					 5000
+#define SP_PERIODIC_EVT_PERIOD               3000	// ms
+#define ES_PERIODIC_EVT_PERIOD				 60000	// ms
+#define ES_AXY_PERIOD				 		 1000	// ms
+#define ES_ADV_SLEEP_PERIOD_MIN				 30		// s
+#define ES_ADV_SLEEP_PERIOD_MAX				 60		// s
+#define ES_ADV_AWAKE_PERIOD					 5000	// ms
 
 // Task configuration
 #define SP_TASK_PRIORITY                     1
@@ -434,7 +435,11 @@ static void advSleep() {
 		GapAdv_enable(advHandleLongRange, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
 		isAsleep = 0;
 	} else {
-		Util_restartClock(&clkESLOAdvSleep, ES_ADV_SLEEP_PERIOD);
+		// sleep rnd amt to avoid advertisement syncing
+		uint8_t rndSleep = (rand()
+				% (ES_ADV_SLEEP_PERIOD_MAX - ES_ADV_SLEEP_PERIOD_MIN + 1))
+				+ ES_ADV_SLEEP_PERIOD_MIN;
+		Util_restartClock(&clkESLOAdvSleep, rndSleep * 1000); // back to millis
 		GapAdv_disable(advHandleLongRange);
 		GapAdv_disable(advHandleLegacy);
 		isAsleep = 1;
@@ -1076,7 +1081,7 @@ static void SimplePeripheral_init(void) {
 
 // don't turn on because advertising is enabled on startup below, turn on at conn. terminate
 	Util_constructClock(&clkESLOAdvSleep, SimplePeripheral_clockHandler,
-	ES_ADV_SLEEP_PERIOD, 0, false, (UArg) &argESLOAdvSleep);
+	ES_ADV_SLEEP_PERIOD_MIN, 0, false, (UArg) &argESLOAdvSleep);
 
 // Set the Device Name characteristic in the GAP GATT Service
 // For more information, see the section in the User's Guide:
