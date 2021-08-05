@@ -1,4 +1,18 @@
 // @file  simple_central.c
+// https://dev.ti.com/tirex/explore/node?node=AD4sGbaamTCyn0DvZgBAsg__krol.2c__LATEST
+/*
+ *  open iTerm, find device >> ls /dev/tty.*
+ *  >> cd ~/Downloads
+ *  clear contents of screenlog.0
+ *  debug program to mainThread()
+ *  1: screen -L /dev/tty.usbmodemL1100NA51 115200
+ *  2: screen -L /dev/tty.usbmodemL1100NM51 115200
+ *  3: screen -L /dev/tty.usbmodemL1100MPN1 115200
+ *  4: screen -L /dev/tty.usbmodemL1100LNK1 115200
+ *  5: screen -L /dev/tty.usbmodemL1100LR91 115200
+ *  play program until end
+ *  close iTerm with ctrl+a,k
+ */
 
 /*
  * INCLUDES
@@ -41,6 +55,7 @@
  */
 // Application events
 static uint8_t ESLO_PREFIX[2] = { 0xEE, 0xEE };
+#define TIME_UUID		0xEFFF
 #define BASE_ADDR_LOC	0xFF000
 
 #define BASE_EVT_INC_TIME		   0x01
@@ -53,6 +68,7 @@ static uint8_t ESLO_PREFIX[2] = { 0xEE, 0xEE };
 #define SC_EVT_PASSCODE_NEEDED     0x08
 #define SC_EVT_READ_RPA            0x09
 #define SC_EVT_INSUFFICIENT_MEM    0x0A
+#define ESLO_EXPORT_DATA		   0x0B
 
 // Simple Central Task Events
 #define SC_ICALL_EVT                         ICALL_MSG_EVENT_ID  // Event_Id_31
@@ -64,7 +80,7 @@ static uint8_t ESLO_PREFIX[2] = { 0xEE, 0xEE };
 #define BASE_TIME_INTERVAL					1000 // milliseconds
 
 // 1.28 sec unit. Range: 0x00-0xffff, where 0x00 is continuously scanning. See SimpleCentral_doDiscoverDevices()
-#define BASE_SCAN_PERIOD					5
+#define BASE_SCAN_PERIOD					1
 
 // Default connection interval when connecting to more then 8 connections and autoconnenct enabled
 #define DEFAULT_MULTICON_INTERVAL            200 //250 ms (200 frames of 1.25ms)
@@ -107,7 +123,7 @@ static uint8_t ESLO_PREFIX[2] = { 0xEE, 0xEE };
  * TYPEDEFS
  */
 
-// Auto connect availble groups
+// Auto connect available groups
 enum {
 	AUTOCONNECT_DISABLE = 0,              // Disable
 	AUTOCONNECT_GROUP_A = 1,              // Group A
@@ -255,7 +271,7 @@ static GAP_Addr_Modes_t addrMode = DEFAULT_ADDRESS_MODE;
 static uint8 rpa[B_ADDR_LEN] = { 0 };
 
 // Auto connect Disabled/Enabled {0 - Disabled, 1- Group A , 2-Group B, ...}
-uint8_t autoConnect = AUTOCONNECT_DISABLE;
+uint8_t autoConnect = AUTOCONNECT_GROUP_A; //AUTOCONNECT_DISABLE;
 
 //AutoConnect Group list
 static osal_list_list groupList;
@@ -275,8 +291,10 @@ NVS_Handle nvsHandle;
 NVS_Attrs regionAttrs;
 NVS_Params nvsParams;
 uint32_t nvsOffset = 0;
-
 uint32_t curTime = 0;
+uint8_t payload[16];
+uint32_t curOffset, logTime;
+int8_t logRSSI;
 
 /*********************************************************************
  * LOCAL FUNCTIONS
@@ -294,11 +312,11 @@ static void SimpleCentral_processGATTMsg(gattMsgEvent_t *pMsg);
 static void SimpleCentral_processAppMsg(scEvt_t *pMsg);
 static void SimpleCentral_processGATTDiscEvent(gattMsgEvent_t *pMsg);
 static void SimpleCentral_startSvcDiscovery(void);
-#if (DEFAULT_DEV_DISC_BY_SVC_UUID == TRUE)
+
 static bool SimpleCentral_findSvcUuid(uint16_t uuid, uint8_t *pData,
-                                      uint16_t dataLen);
+		uint16_t dataLen);
 static void SimpleCentral_addScanInfo(uint8_t *pAddr, uint8_t addrType);
-#endif // DEFAULT_DEV_DISC_BY_SVC_UUID
+
 static uint8_t SimpleCentral_addConnInfo(uint16_t connHandle, uint8_t *pAddr);
 static uint8_t SimpleCentral_removeConnInfo(uint16_t connHandle);
 static uint8_t SimpleCentral_getConnIndex(uint16_t connHandle);
@@ -345,13 +363,13 @@ static gapBondCBs_t bondMgrCBs = { SimpleCentral_passcodeCb, // Passcode callbac
  */
 
 void ESLO_LogAdvertisement(GapScan_Evt_AdvRpt_t *pAdvRpt) {
-	uint8_t payload[16] = { 0x00 };
+	memset(payload, 0, sizeof(payload));
 	GPIO_write(CONFIG_GPIO_LEDG, 1);
 	// construct payload
 	memcpy(payload, &pAdvRpt->addr, 6 * sizeof(uint8_t));
 	memcpy(payload + 6, &curTime, sizeof(uint32_t));
 	memcpy(payload + 10, &pAdvRpt->rssi, sizeof(int8_t));
-	if (nvsOffset > regionAttrs.sectorSize) {
+	if (nvsOffset > regionAttrs.regionSize) {
 		nvsOffset = 0; // wrap data or first time running
 	}
 	// handle erase
@@ -361,10 +379,10 @@ void ESLO_LogAdvertisement(GapScan_Evt_AdvRpt_t *pAdvRpt) {
 	// write payload
 	NVS_write(nvsHandle, nvsOffset, (void*) payload, sizeof(payload),
 	NVS_WRITE_POST_VERIFY);
-	// update location for power lapse
+	nvsOffset += sizeof(payload);
+	// update location for power lapse, it will wakeup to this value
 	NVS_write(nvsHandle, BASE_ADDR_LOC, (void*) &nvsOffset, sizeof(nvsOffset),
 	NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
-	nvsOffset += sizeof(payload);
 }
 
 /*********************************************************************
@@ -557,7 +575,7 @@ static void SimpleCentral_init(void) {
 
 	NVS_read(nvsHandle, BASE_ADDR_LOC, &nvsOffset, sizeof(nvsOffset));
 
-//  dispHandle = Display_open(Display_Type_ANY, NULL);
+	dispHandle = Display_open(Display_Type_UART, NULL);
 }
 
 /*********************************************************************
@@ -749,65 +767,64 @@ static void SimpleCentral_processAppMsg(scEvt_t *pMsg) {
 	case SC_EVT_ADV_REPORT: {
 		GapScan_Evt_AdvRpt_t *pAdvRpt = (GapScan_Evt_AdvRpt_t*) (pMsg->pData);
 		//Auto connect is enabled
-		if (autoConnect) {
-			if (numGroupMembers == MAX_NUM_BLE_CONNS) {
-				GapScan_disable("");
-				break;
-			}
-			//Check if advertiser is part of the group
-			if (SimpleCentral_isMember(pAdvRpt->pData, acGroup,
-			GROUP_NAME_LENGTH)) {
-				groupListElem_t *tempMember;
-				//Traverse list to search if advertiser already in list.
-				for (tempMember = (groupListElem_t*) osal_list_head(&groupList);
-						tempMember != NULL;
-						tempMember = (groupListElem_t*) osal_list_next(
-								(osal_list_elem*) tempMember)) {
-					if (osal_memcmp((uint8_t*) tempMember->addr,
-							(uint8_t*) pAdvRpt->addr, B_ADDR_LEN)) {
-						break;
-					}
-				}
-				//If tempMemer is NULL this means advertiser not in list.
-				if (tempMember == NULL) {
-					groupListElem_t *groupMember =
-							(groupListElem_t*) ICall_malloc(
-									sizeof(groupListElem_t));
-					if (groupMember != NULL) {
-						//Copy member's details into Member's list.
-						osal_memcpy((uint8_t*) groupMember->addr,
-								(uint8_t*) pAdvRpt->addr, B_ADDR_LEN);
-						groupMember->addrType = pAdvRpt->addrType;
-						groupMember->status = GROUP_MEMBER_INITIALIZED;
-						groupMember->connHandle =
-						GROUP_INITIALIZED_CONNECTION_HANDLE;
-						//Add group member into list.
-						osal_list_putHead(&groupList,
-								(osal_list_elem*) groupMember);
-						numGroupMembers++;
-					} else {
-//						Display_printf(dispHandle, SC_ROW_AC, 0,
-//								"AutoConnect: Allocation failed!");
-						break;
-					}
-				}
-			}
-		}
-#if (DEFAULT_DEV_DISC_BY_SVC_UUID == TRUE)
-      if (SimpleCentral_findSvcUuid(SIMPLEPROFILE_SERV_UUID,
-                                    pAdvRpt->pData, pAdvRpt->dataLen))
-      {
-        SimpleCentral_addScanInfo(pAdvRpt->addr, pAdvRpt->addrType);
-//        Display_printf(dispHandle, SC_ROW_NON_CONN, 0, "Discovered: %s",
-//                       Util_convertBdAddr2Str(pAdvRpt->addr));
-      }
-#else // !DEFAULT_DEV_DISC_BY_SVC_UUID
-//      Display_printf(dispHandle, SC_ROW_NON_CONN, 0, "Discovered: %s",
-//                     Util_convertBdAddr2Str(pAdvRpt->addr));
-#endif // DEFAULT_DEV_DISC_BY_SVC_UUID
+//		if (autoConnect) {
+//			if (numGroupMembers == MAX_NUM_BLE_CONNS) {
+//				GapScan_disable("");
+//				break;
+//			}
+//			//Check if advertiser is part of the group
+//			if (SimpleCentral_isMember(pAdvRpt->pData, acGroup,
+//			GROUP_NAME_LENGTH)) {
+//				groupListElem_t *tempMember;
+//				//Traverse list to search if advertiser already in list.
+//				for (tempMember = (groupListElem_t*) osal_list_head(&groupList);
+//						tempMember != NULL;
+//						tempMember = (groupListElem_t*) osal_list_next(
+//								(osal_list_elem*) tempMember)) {
+//					if (osal_memcmp((uint8_t*) tempMember->addr,
+//							(uint8_t*) pAdvRpt->addr, B_ADDR_LEN)) {
+//						break;
+//					}
+//				}
+//				//If tempMemer is NULL this means advertiser not in list.
+//				if (tempMember == NULL) {
+//					groupListElem_t *groupMember =
+//							(groupListElem_t*) ICall_malloc(
+//									sizeof(groupListElem_t));
+//					if (groupMember != NULL) {
+//						//Copy member's details into Member's list.
+//						osal_memcpy((uint8_t*) groupMember->addr,
+//								(uint8_t*) pAdvRpt->addr, B_ADDR_LEN);
+//						groupMember->addrType = pAdvRpt->addrType;
+//						groupMember->status = GROUP_MEMBER_INITIALIZED;
+//						groupMember->connHandle =
+//						GROUP_INITIALIZED_CONNECTION_HANDLE;
+//						//Add group member into list.
+//						osal_list_putHead(&groupList,
+//								(osal_list_elem*) groupMember);
+//						numGroupMembers++;
+//					} else {
+////						Display_printf(dispHandle, SC_ROW_AC, 0,
+////								"AutoConnect: Allocation failed!");
+//						break;
+//					}
+//				}
+//			}
+//		}
+
+		status_t status;
+//		if (SimpleCentral_findSvcUuid(TIME_UUID, pAdvRpt->pData,
+//				pAdvRpt->dataLen)) {
+//			status = GapInit_connect(pAdvRpt->addrType & MASK_ADDRTYPE_ID,
+//					pAdvRpt->addr, DEFAULT_INIT_PHY, 0);
+////			SimpleCentral_addScanInfo(pAdvRpt->addr, pAdvRpt->addrType);
+////			GATT_ReadCharValue();
+//		}
 
 		if (memcmp(&ESLO_PREFIX, &pAdvRpt->addr[4], 2 * sizeof(uint8_t)) == 0) {
 			ESLO_LogAdvertisement(pAdvRpt);
+			status = GapInit_connect(pAdvRpt->addrType & MASK_ADDRTYPE_ID,
+					pAdvRpt->addr, DEFAULT_INIT_PHY, 0);
 		}
 		// Free report payload data
 		if (pAdvRpt->pData != NULL) {
@@ -838,7 +855,7 @@ static void SimpleCentral_processAppMsg(scEvt_t *pMsg) {
 			static uint8_t *pAddrs = NULL;
 			uint8_t *pAddrTemp;
 #if (DEFAULT_DEV_DISC_BY_SVC_UUID == TRUE)
-	      numReport = numScanRes;
+			numReport = numScanRes;
 #else // !DEFAULT_DEV_DISC_BY_SVC_UUID
 			GapScan_Evt_AdvRpt_t advRpt;
 
@@ -870,11 +887,11 @@ static void SimpleCentral_processAppMsg(scEvt_t *pMsg) {
 				pAddrTemp = pAddrs;
 				for (i = 0; i < numReport; i++, pAddrTemp += SC_ADDR_STR_SIZE) {
 #if (DEFAULT_DEV_DISC_BY_SVC_UUID == TRUE)
-	          // Get the address from the list, convert it to string, and
-	          // copy the string to the address buffer
-	          memcpy(pAddrTemp, Util_convertBdAddr2Str(scanList[i].addr),
-	                 SC_ADDR_STR_SIZE);
-	  #else // !DEFAULT_DEV_DISC_BY_SVC_UUID
+					// Get the address from the list, convert it to string, and
+					// copy the string to the address buffer
+					memcpy(pAddrTemp, Util_convertBdAddr2Str(scanList[i].addr),
+					SC_ADDR_STR_SIZE);
+#else // !DEFAULT_DEV_DISC_BY_SVC_UUID
 					// Get the address from the report, convert it to string, and
 					// copy the string to the address buffer
 					GapScan_getAdvReport(i, &advRpt);
@@ -950,6 +967,38 @@ static void SimpleCentral_processAppMsg(scEvt_t *pMsg) {
 
 		// We might be in the middle of scanning, try stopping it.
 		GapScan_disable("");
+		break;
+	}
+
+	case ESLO_EXPORT_DATA: {
+		GapScan_disable();
+		GPIO_write(CONFIG_GPIO_LEDG, 0x01);
+		GPIO_write(CONFIG_GPIO_LEDR, 0x01);
+		NVS_getAttrs(nvsHandle, &regionAttrs);
+		NVS_read(nvsHandle, BASE_ADDR_LOC, (void*) &nvsOffset,
+				sizeof(nvsOffset));
+
+		Display_printf(dispHandle, 0, 0, "\n");
+		memset(payload, 0, sizeof(payload));
+		for (curOffset = 0; curOffset < nvsOffset; curOffset +=
+				sizeof(payload)) {
+			NVS_read(nvsHandle, curOffset, (void*) payload, sizeof(payload));
+			memcpy(&logTime, payload + 6, sizeof(logTime));
+			memcpy(&logRSSI, payload + 10, sizeof(logRSSI));
+			//		if (payload[5] != 0xEE) {
+			//			break;
+			//		}
+			Display_printf(dispHandle, 0, 0, "%s,%u,%i",
+					Util_convertBdAddr2Str(payload), logTime, logRSSI);
+		}
+		Display_printf(dispHandle, 0, 0, "\n");
+		while (GPIO_read(CONFIG_GPIO_BTN2) == 0) {
+			// debounce
+		}
+		GapScan_enable(BASE_SCAN_PERIOD, DEFAULT_SCAN_DURATION,
+				DEFAULT_MAX_SCAN_RES);
+		GPIO_write(CONFIG_GPIO_LEDG, 0x00);
+		GPIO_write(CONFIG_GPIO_LEDR, 0x00);
 		break;
 	}
 
@@ -1078,28 +1127,33 @@ static void SimpleCentral_processGapMsg(gapEventHdr_t *pMsg) {
 		uint16_t connHandle = ((gapEstLinkReqEvent_t*) pMsg)->connectionHandle;
 		uint8_t *pAddr = ((gapEstLinkReqEvent_t*) pMsg)->devAddr;
 		BLE_LOG_INT_TIME(0, BLE_LOG_MODULE_APP, "APP : ---- got GAP_LINK_ESTABLISHED_EVENT", 0);
-		if (autoConnect) {
-			if (memberInProg != NULL) {
-				if (osal_memcmp((uint8_t*) pAddr, (uint8_t*) memberInProg->addr,
-				B_ADDR_LEN)) {
-					//Move the connected member to the tail of the list.
-					osal_list_remove(&groupList,
-							(osal_list_elem*) memberInProg);
-					osal_list_put(&groupList, (osal_list_elem*) memberInProg);
-					//Set the connected bit.;
-					memberInProg->status |= GROUP_MEMBER_CONNECTED;
-					//Store the connection handle.
-					memberInProg->connHandle = connHandle;
-					memberInProg = NULL;
-				}
-			}
-		}
+//		if (autoConnect) {
+//			if (memberInProg != NULL) {
+//				if (osal_memcmp((uint8_t*) pAddr, (uint8_t*) memberInProg->addr,
+//				B_ADDR_LEN)) {
+//					//Move the connected member to the tail of the list.
+//					osal_list_remove(&groupList,
+//							(osal_list_elem*) memberInProg);
+//					osal_list_put(&groupList, (osal_list_elem*) memberInProg);
+//					//Set the connected bit.;
+//					memberInProg->status |= GROUP_MEMBER_CONNECTED;
+//					//Store the connection handle.
+//					memberInProg->connHandle = connHandle;
+//					memberInProg = NULL;
+//				}
+//			}
+//		}
 		uint8_t connIndex;
 		uint8_t *pStrAddr;
 		uint8_t pairMode = 0;
 
 		// Add this connection info to the list
 		connIndex = SimpleCentral_addConnInfo(connHandle, pAddr);
+
+		// Matt
+		attReadReq_t req;
+		req.handle = connList[connIndex].charHandle;
+		GATT_ReadCharValue(connHandle, &req, selfEntity);
 
 		// connIndex cannot be equal to or greater than MAX_NUM_BLE_CONNS
 		SIMPLECENTRAL_ASSERT(connIndex < MAX_NUM_BLE_CONNS);
@@ -1114,7 +1168,7 @@ static void SimpleCentral_processGapMsg(gapEventHdr_t *pMsg) {
 		GAPBondMgr_GetParameter(GAPBOND_PAIRING_MODE, &pairMode);
 
 		if ((autoConnect) && (pairMode != GAPBOND_PAIRING_MODE_INITIATE)) {
-			SimpleCentral_autoConnect();
+//			SimpleCentral_autoConnect();
 		}
 		break;
 	}
@@ -1268,8 +1322,8 @@ static void SimpleCentral_processGATTMsg(gattMsgEvent_t *pMsg) {
 //                       "Read Error %d", pMsg->msg.errorRsp.errCode);
 			} else {
 				// After a successful read, display the read value
-//        Display_printf(dispHandle, SC_ROW_CUR_CONN, 0,
-//                       "Read rsp: 0x%02x", pMsg->msg.readRsp.pValue[0]);
+				Display_printf(dispHandle, 0, 0, "Read rsp: 0x%02x",
+						pMsg->msg.readRsp.pValue[0]);
 			}
 		} else if ((pMsg->method == ATT_WRITE_RSP)
 				|| ((pMsg->method == ATT_ERROR_RSP)
@@ -1583,7 +1637,6 @@ static void SimpleCentral_processGATTDiscEvent(gattMsgEvent_t *pMsg) {
 	}
 }
 
-#if (DEFAULT_DEV_DISC_BY_SVC_UUID == TRUE)
 /*********************************************************************
  * @fn      SimpleCentral_findSvcUuid
  *
@@ -1592,64 +1645,55 @@ static void SimpleCentral_processGATTDiscEvent(gattMsgEvent_t *pMsg) {
  * @return  TRUE if service UUID found
  */
 static bool SimpleCentral_findSvcUuid(uint16_t uuid, uint8_t *pData,
-                                      uint16_t dataLen)
-{
-  uint8_t adLen;
-  uint8_t adType;
-  uint8_t *pEnd;
+		uint16_t dataLen) {
+	uint8_t adLen;
+	uint8_t adType;
+	uint8_t *pEnd;
 
-  if (dataLen > 0)
-  {
-    pEnd = pData + dataLen - 1;
+	if (dataLen > 0) {
+		pEnd = pData + dataLen - 1;
 
-    // While end of data not reached
-    while (pData < pEnd)
-    {
-      // Get length of next AD item
-      adLen = *pData++;
-      if (adLen > 0)
-      {
-        adType = *pData;
+		// While end of data not reached
+		while (pData < pEnd) {
+			// Get length of next AD item
+			adLen = *pData++;
+			if (adLen > 0) {
+				adType = *pData;
 
-        // If AD type is for 16-bit service UUID
-        if ((adType == GAP_ADTYPE_16BIT_MORE) ||
-            (adType == GAP_ADTYPE_16BIT_COMPLETE))
-        {
-          pData++;
-          adLen--;
+				// If AD type is for 16-bit service UUID
+				if ((adType == GAP_ADTYPE_16BIT_MORE)
+						|| (adType == GAP_ADTYPE_16BIT_COMPLETE)) {
+					pData++;
+					adLen--;
 
-          // For each UUID in list
-          while (adLen >= 2 && pData < pEnd)
-          {
-            // Check for match
-            if ((pData[0] == LO_UINT16(uuid)) && (pData[1] == HI_UINT16(uuid)))
-            {
-              // Match found
-              return TRUE;
-            }
+					// For each UUID in list
+					while (adLen >= 2 && pData < pEnd) {
+						// Check for match
+						if ((pData[0] == LO_UINT16(uuid))
+								&& (pData[1] == HI_UINT16(uuid))) {
+							// Match found
+							return TRUE;
+						}
 
-            // Go to next
-            pData += 2;
-            adLen -= 2;
-          }
+						// Go to next
+						pData += 2;
+						adLen -= 2;
+					}
 
-          // Handle possible erroneous extra byte in UUID list
-          if (adLen == 1)
-          {
-            pData++;
-          }
-        }
-        else
-        {
-          // Go to next item
-          pData += adLen;
-        }
-      }
-    }
-  }
+					// Handle possible erroneous extra byte in UUID list
+					if (adLen == 1) {
+						pData++;
+					}
+				} else {
+					// Go to next item
+					pData += adLen;
+				}
+			}
+		}
+	}
 
-  // Match not found
-  return FALSE;
+	// Match not found
+	return FALSE;
 }
 
 /*********************************************************************
@@ -1659,31 +1703,26 @@ static bool SimpleCentral_findSvcUuid(uint16_t uuid, uint8_t *pData,
  *
  * @return  none
  */
-static void SimpleCentral_addScanInfo(uint8_t *pAddr, uint8_t addrType)
-{
-  uint8_t i;
+static void SimpleCentral_addScanInfo(uint8_t *pAddr, uint8_t addrType) {
+	uint8_t i;
 
-  // If result count not at max
-  if (numScanRes < DEFAULT_MAX_SCAN_RES)
-  {
-    // Check if device is already in scan results
-    for (i = 0; i < numScanRes; i++)
-    {
-      if (memcmp(pAddr, scanList[i].addr , B_ADDR_LEN) == 0)
-      {
-        return;
-      }
-    }
+	// If result count not at max
+	if (numScanRes < DEFAULT_MAX_SCAN_RES) {
+		// Check if device is already in scan results
+		for (i = 0; i < numScanRes; i++) {
+			if (memcmp(pAddr, scanList[i].addr, B_ADDR_LEN) == 0) {
+				return;
+			}
+		}
 
-    // Add addr to scan result list
-    memcpy(scanList[numScanRes].addr, pAddr, B_ADDR_LEN);
-    scanList[numScanRes].addrType = addrType;
+		// Add addr to scan result list
+		memcpy(scanList[numScanRes].addr, pAddr, B_ADDR_LEN);
+		scanList[numScanRes].addrType = addrType;
 
-    // Increment scan result count
-    numScanRes++;
-  }
+		// Increment scan result count
+		numScanRes++;
+	}
 }
-#endif // DEFAULT_DEV_DISC_BY_SVC_UUID
 
 /*********************************************************************
  * @fn      SimpleCentral_addConnInfo
@@ -1869,12 +1908,17 @@ void SimpleCentral_clockHandler(UArg arg) {
 		GPIO_write(CONFIG_GPIO_LEDG, 0); // toggled on for ESLO advertisement
 		GPIO_write(CONFIG_GPIO_LEDR, 0);
 
-		if (GPIO_read(CONFIG_GPIO_BTN1) == 0x00) {
-			nvsOffset = 0; // reset for this session
+		if (GPIO_read(CONFIG_GPIO_BTN1) == 0) {
+			// reset for this session
+			nvsOffset = 0;
+			curTime = 0;
 			NVS_write(nvsHandle, BASE_ADDR_LOC, (void*) &nvsOffset,
 					sizeof(nvsOffset), NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
 
 			GPIO_write(CONFIG_GPIO_LEDR, 1);
+		}
+		if (GPIO_read(CONFIG_GPIO_BTN2) == 0) {
+			SimpleCentral_enqueueMsg(ESLO_EXPORT_DATA, 0, NULL);
 		}
 		break;
 
@@ -2058,12 +2102,13 @@ bool SimpleCentral_doDiscoverDevices(uint8_t index) {
 	(void) index;
 
 #if (DEFAULT_DEV_DISC_BY_SVC_UUID == TRUE)
-  // Scanning for DEFAULT_SCAN_DURATION x 10 ms.
-  // The stack does not need to record advertising reports
-  // since the application will filter them by Service UUID and save.
-  // Reset number of scan results to 0 before starting scan
-  numScanRes = 0;
-  GapScan_enable(0, DEFAULT_SCAN_DURATION, 0);
+	// Scanning for DEFAULT_SCAN_DURATION x 10 ms.
+	// The stack does not need to record advertising reports
+	// since the application will filter them by Service UUID and save.
+	// Reset number of scan results to 0 before starting scan
+	numScanRes = 0;
+//	GapScan_enable(0, DEFAULT_SCAN_DURATION, 0);
+	GapScan_enable(BASE_SCAN_PERIOD, DEFAULT_SCAN_DURATION, 0);
 #else // !DEFAULT_DEV_DISC_BY_SVC_UUID
 	// Scanning for DEFAULT_SCAN_DURATION x 10 ms.
 	// Let the stack record the advertising reports as many as up to DEFAULT_MAX_SCAN_RES.
@@ -2103,8 +2148,8 @@ bool SimpleCentral_doStopDiscovering(uint8_t index) {
  */
 bool SimpleCentral_doConnect(uint8_t index) {
 #if (DEFAULT_DEV_DISC_BY_SVC_UUID == TRUE)
-  GapInit_connect(scanList[index].addrType & MASK_ADDRTYPE_ID,
-                  scanList[index].addr, DEFAULT_INIT_PHY, 0);
+	GapInit_connect(scanList[index].addrType & MASK_ADDRTYPE_ID,
+			scanList[index].addr, DEFAULT_INIT_PHY, 0);
 #else // !DEFAULT_DEV_DISC_BY_SVC_UUID
 	GapScan_Evt_AdvRpt_t advRpt;
 

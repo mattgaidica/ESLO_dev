@@ -4,11 +4,10 @@
  *  >> cd ~/Downloads
  *  clear contents of screenlog.0
  *  debug program to mainThread()
- *  >> screen -L /dev/tty.usbmodemL1100LNK1 115200
- *  1: /dev/tty.usbmodemL1100NA51
- *  2: /dev/tty.usbmodemL1100NM51
- *  3: /dev/tty.usbmodemL1100MPN1
- *  4: /dev/tty.usbmodemL1100LNK1
+ *  1: screen -L /dev/tty.usbmodemL1100NA51 115200
+ *  2: screen -L /dev/tty.usbmodemL1100NM51 115200
+ *  3: screen -L /dev/tty.usbmodemL1100MPN1 115200
+ *  4: screen -L /dev/tty.usbmodemL1100LNK1 115200
  *  play program until end
  *  close iTerm with ctrl+a,k
  */
@@ -33,24 +32,6 @@ uint32_t nvsOffset, curOffset, curTime;
 int8_t RSSI;
 
 char* Util_convertBdAddr2Str(uint8_t *pAddr);
-
-//memcpy(payload, &pAdvRpt->addr, 6 * sizeof(uint8_t));
-//memcpy(payload + 6, &curTime, sizeof(uint32_t));
-//memcpy(payload + 10, &pAdvRpt->rssi, sizeof(int8_t));
-//if (nvsOffset > regionAttrs.sectorSize) {
-//	nvsOffset = 0; // wrap data or first time running
-//}
-//// handle erase
-//if (nvsOffset % regionAttrs.sectorSize == 0) {
-//	NVS_erase(nvsHandle, nvsOffset, regionAttrs.sectorSize);
-//}
-//// write payload
-//NVS_write(nvsHandle, nvsOffset, (void*) payload, sizeof(payload),
-//		NVS_WRITE_POST_VERIFY);
-//// update location for power lapse
-//NVS_write(nvsHandle, BASE_ADDR_LOC, (void*) &nvsOffset, sizeof(nvsOffset),
-//		NVS_WRITE_ERASE | NVS_WRITE_POST_VERIFY);
-//nvsOffset += sizeof(payload);
 
 /*
  *  ======== mainThread ========
