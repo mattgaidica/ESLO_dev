@@ -795,7 +795,7 @@ static void xlDataHandler(void) {
 }
 
 void eegDataReady(uint_least8_t index) {
-	if (iEEGDiv < EEG_SAMPLING_DIV) {
+	if (iEEGDiv < (EEG_SAMPLING_DIV - 1)) {
 		iEEGDiv++;
 	} else {
 		SimplePeripheral_enqueueMsg(ES_EEG_NOTIF, NULL);
