@@ -821,6 +821,7 @@ static void SimpleCentral_processAppMsg(scEvt_t *pMsg) {
 ////			GATT_ReadCharValue();
 //		}
 
+		// Matt
 		if (memcmp(&ESLO_PREFIX, &pAdvRpt->addr[4], 2 * sizeof(uint8_t)) == 0) {
 			ESLO_LogAdvertisement(pAdvRpt);
 			status = GapInit_connect(pAdvRpt->addrType & MASK_ADDRTYPE_ID,
