@@ -69,7 +69,7 @@
 #define ES_AXY_PERIOD				 		 1000	// ms
 #define ES_ADV_SLEEP_PERIOD_MIN				 30		// s
 #define ES_ADV_SLEEP_PERIOD_MAX				 60		// s
-#define ES_ADV_AWAKE_PERIOD					 5000	// ms
+#define ES_ADV_AWAKE_PERIOD					 2  	// s
 
 // Task configuration
 #define SP_TASK_PRIORITY                     1
@@ -97,6 +97,8 @@
 #define ES_EXPORT_POST						 15
 #define ES_EXPORT_DONE					     16
 #define ES_ADV_SLEEP					     17
+#define ES_DUTY								 18
+#define ES_DURATION							 19
 
 // Internal Events for RTOS application
 #define SP_ICALL_EVT                         ICALL_MSG_EVENT_ID // Event_Id_31
@@ -350,6 +352,7 @@ static void esloUpdateNVS();
 static void esloResetVersion();
 //static void WatchdogCallbackFxn();
 static void advSleep();
+static void esloRecDuration();
 
 static Clock_Struct clkESLOPeriodic;
 spClockEventData_t argESLOPeriodic = { .event = ES_PERIODIC_EVT };
@@ -359,7 +362,13 @@ spClockEventData_t argESLOAxy = { .event = ES_AXY_EVT };
 
 static Clock_Struct clkESLOAdvSleep;
 spClockEventData_t argESLOAdvSleep = { .event = ES_ADV_SLEEP };
-uint8_t isAsleep = 0;
+uint8_t isAdvLong = 0;
+
+static Clock_Struct clkESLODuty;
+spClockEventData_t argESLODuty = { .event = ES_DUTY };
+
+static Clock_Struct clkESLODuration;
+spClockEventData_t argESLODuration = { .event = ES_DURATION };
 
 uint8_t esloSettings[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
 uint8_t esloSettingsSleep[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
@@ -428,12 +437,48 @@ NVS_Handle nvsHandle;
 NVS_Attrs regionAttrs;
 NVS_Params nvsParams;
 
+static void esloRecDuty() {
+	// Start the next period
+	uint32_t dutyInMillis = 1000 * 60 * 60 * esloSettings[Set_EEGDuty];
+	uint32_t durationInMillis = 1000 * 60 * esloSettings[Set_EEGDuration];
+	if (dutyInMillis > 0 & durationInMillis > 0) {
+		if (dutyInMillis != durationInMillis) {
+			Util_restartClock(&clkESLODuty, dutyInMillis);
+			Util_restartClock(&clkESLODuration, durationInMillis);
+			// write timestamp
+			eslo_dt eslo;
+			eslo.type = Type_AbsoluteTime;
+			eslo.data = absoluteTime;
+			ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
+			// reinstate EEG settings
+			esloSettings[Set_EEG1] = esloSettingsSleep[Set_EEG1];
+			esloSettings[Set_EEG2] = esloSettingsSleep[Set_EEG2];
+			esloSettings[Set_EEG3] = esloSettingsSleep[Set_EEG3];
+			esloSettings[Set_EEG4] = esloSettingsSleep[Set_EEG4];
+			updateEEGFromSettings(true);
+		} // else: record full out
+	} else {
+		// all other states are invalid, turn off EEG
+		esloRecDuration();
+	}
+}
+
+// duration clock is stopped in clock handler
+static void esloRecDuration() {
+	// turn off EEG
+	esloSettings[Set_EEG1] = 0;
+	esloSettings[Set_EEG2] = 0;
+	esloSettings[Set_EEG3] = 0;
+	esloSettings[Set_EEG4] = 0;
+	updateEEGFromSettings(false);
+}
+
 static void advSleep() {
-	if (isAsleep) { // wake-up, enable advertise for short period
-		Util_restartClock(&clkESLOAdvSleep, ES_ADV_AWAKE_PERIOD);
+	if (isAdvLong) { // wake-up, enable advertise for short period
+		Util_restartClock(&clkESLOAdvSleep, ES_ADV_AWAKE_PERIOD * 1000);
 		GapAdv_enable(advHandleLegacy, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
 		GapAdv_enable(advHandleLongRange, GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
-		isAsleep = 0;
+		isAdvLong = 0;
 	} else {
 		// sleep rnd amt to avoid advertisement syncing
 		uint8_t rndSleep = (rand()
@@ -442,7 +487,7 @@ static void advSleep() {
 		Util_restartClock(&clkESLOAdvSleep, rndSleep * 1000); // back to millis
 		GapAdv_disable(advHandleLongRange);
 		GapAdv_disable(advHandleLegacy);
-		isAsleep = 1;
+		isAdvLong = 1;
 	}
 }
 
@@ -474,7 +519,7 @@ static void esloRecoverSession() {
 	nvsHandle = NVS_open(ESLO_NVS_0, &nvsParams);
 	if (nvsHandle != NULL) {
 		NVS_getAttrs(nvsHandle, &regionAttrs);
-		NVS_read(nvsHandle, 0, (void*) nvsBuffer, sizeof(nvsBuffer));
+		NVS_read(nvsHandle, 0, (void*) nvsBuffer, sizeof(nvsBuffer)); // 0 offset
 		// compare eslo sig
 		ESLO_decodeNVS(nvsBuffer, &tempSignature, &tempVersion, &tempAddress);
 		if (tempSignature == ESLOSignature) {
@@ -496,7 +541,8 @@ static void esloRecoverSession() {
 
 static void esloSetVersion() {
 	eslo_dt eslo;
-	ESLO_GenerateVersion(&esloVersion, CONFIG_TRNG_1);
+	esloVersion = GitCommit; // this is not semi-static
+//	ESLO_GenerateVersion(&esloVersion, CONFIG_TRNG_1);
 	eslo.type = Type_Version;
 	eslo.data = esloVersion;
 	ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
@@ -555,22 +601,17 @@ static void esloSleep() {
 
 static void mapEsloSettings(uint8_t *esloSettingsNew) {
 	eslo_dt eslo;
-
-// order: end with the things that have interrupts
-//	if (esloSettingsNew[Set_ExportData] > 0x00) {
-//		// force turn off AXY and EEG by overwriting new settings
-//		esloSettingsNew[Set_SleepWake] = 0x00;
-//		esloSettingsNew[Set_EEG1] = 0x00;
-//		esloSettingsNew[Set_EEG2] = 0x00;
-//		esloSettingsNew[Set_EEG3] = 0x00;
-//		esloSettingsNew[Set_EEG4] = 0x00;
-//		esloSettingsNew[Set_AxyMode] = 0x00;
-//	}
-//	esloSettings[Set_ExportData] = esloSettingsNew[Set_ExportData];
-
 // resetVersion only comes from iOS, never maintains value (one and done)
 	if (esloSettingsNew[Set_ResetVersion] > 0x00) {
 		esloResetVersion();
+	}
+
+	if (esloSettings[Set_EEGDuty] != *(esloSettingsNew + Set_EEGDuty)) {
+		esloSettings[Set_EEGDuty] = *(esloSettingsNew + Set_EEGDuty);
+	}
+
+	if (esloSettings[Set_EEGDuration] != *(esloSettingsNew + Set_EEGDuration)) {
+		esloSettings[Set_EEGDuration] = *(esloSettingsNew + Set_EEGDuration);
 	}
 
 // this needs some logic: we will never write abstime=0 here
@@ -579,7 +620,7 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 			| esloSettingsNew[Set_Time3] | esloSettingsNew[Set_Time4] > 0x00) {
 		memcpy(&absoluteTime, esloSettingsNew + Set_Time1, 4);
 		eslo.type = Type_AbsoluteTime;
-		eslo.data = absoluteTime; // data is version in this case
+		eslo.data = absoluteTime;
 		ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
 		Util_restartClock(&clkESLOPeriodic, ES_PERIODIC_EVT_PERIOD);
 	}
@@ -589,8 +630,8 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 		esloSettings[Set_AdvLong] = *(esloSettingsNew + Set_AdvLong);
 	}
 
-	if (esloSettings[Set_SleepWake] != *(esloSettingsNew + Set_SleepWake)) {
-		esloSettings[Set_SleepWake] = *(esloSettingsNew + Set_SleepWake);
+	if (esloSettings[Set_Record] != *(esloSettingsNew + Set_Record)) {
+		esloSettings[Set_Record] = *(esloSettingsNew + Set_Record);
 	}
 //	if (esloSettings[Set_TxPower] != *(esloSettingsNew + Set_TxPower)) {
 //		esloSettings[Set_TxPower] = *(esloSettingsNew + Set_TxPower);
@@ -631,14 +672,6 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 // set and notify iOS, since export data now overrides some settings
 	SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR3, SIMPLEPROFILE_CHAR3_LEN,
 			esloSettings);
-
-// updates esloAddr so data will export to end on power cycle if user pushed before powering down
-// !! could consider doing this every second if data is recording?
-	esloUpdateNVS();
-
-//	if (esloSettingsNew[Set_ExportData] > 0x00) {
-//		SimplePeripheral_enqueueMsg(ES_EXPORT_DATA, NULL);
-//	}
 }
 
 static uint8_t USE_EEG(uint8_t *esloSettings) {
@@ -667,6 +700,8 @@ static void eegDataHandler(void) {
 		if (status == 0x00000000) {
 			return;
 		}
+		// !! RM FOR PRODUCTION
+		GPIO_write(LED_1, !GPIO_read(LED_1));
 
 		if (esloSettings[Set_EEG1]) {
 			eslo_eeg1.type = Type_EEG1;
@@ -859,7 +894,6 @@ static void xlInterrupt(bool enableInterrupt) {
 	}
 }
 
-// !!REDO for ESLO_RB2
 static uint8_t updateXlFromSettings(bool actOnInterrupt) {
 	bool enableInterrupt;
 
@@ -904,7 +938,6 @@ static void ESLO_dumpMemUART() {
 	uint32_t exportAddr = 0; // block
 	UART_Params uartParams;
 	UART_Params_init(&uartParams);
-//	uartParams.writeDataMode = UART_DATA_BINARY;
 	uartParams.baudRate = 115200;
 	uart = UART_open(CONFIG_UART_0, &uartParams); // UART_close(uart);
 
@@ -912,22 +945,25 @@ static void ESLO_dumpMemUART() {
 		UART_write(uart, &k, sizeof(uint8_t));
 	}
 
-	while (exportAddr < esloAddr) { // read last page too
+	while (exportAddr < esloAddr) {
 		ret = FlashPageRead(exportAddr, readBuf);
 		for (i = 0; i < PAGE_DATA_SIZE; i++) {
 			UART_write(uart, &readBuf[i], sizeof(uint8_t));
-			GPIO_write(LED_1, !GPIO_read(LED_1));
-			Task_sleep(100);
+			if (i == 0) {
+				GPIO_write(LED_1, !GPIO_read(LED_1));
+			}
 		}
 		exportAddr += 0x1000;
 	}
-
-//	while(1) {
-//		UART_read(uart, &rxByte, sizeof(uint8_t));
-//
-//	}
-
 	UART_close(uart);
+}
+
+static void ESLO_error() {
+	while (1) {
+		GPIO_write(LED_0, !GPIO_read(LED_0));
+		GPIO_write(LED_1, !GPIO_read(LED_1));
+		Task_sleep(10000);
+	}
 }
 
 static void ESLO_startup(void) {
@@ -959,7 +995,9 @@ static void ESLO_startup(void) {
 
 	/* NAND */
 	mem_online = NAND_Init();
-// !!what to do if NAND is not online???
+	if (mem_online == ESLO_MODULE_OFF) {
+		ESLO_error();
+	}
 
 // break here if debug mode
 	if (GPIO_read(DEBUG) == ESLO_LOW) {
@@ -972,16 +1010,12 @@ static void ESLO_startup(void) {
 	ADC_Params_init(&adcParams_vBatt);
 	adc_vBatt = ADC_open(R_VBATT, &adcParams_vBatt);
 	if (adc_vBatt == NULL) {
-//		while (1) {
-//			// !! what happens here?
-//		}
+		ESLO_error();
 	}
 	ADC_Params_init(&adcParams_therm);
 	adc_therm = ADC_open(THERM, &adcParams_therm);
 	if (adc_therm == NULL) {
-//		while (1) {
-//			// !! what happens here?
-//		}
+		// !! non-critical, but maybe a way to not record therm?
 	}
 
 	Watchdog_init();
@@ -991,9 +1025,7 @@ static void ESLO_startup(void) {
 	watchdogParams.callbackFxn = NULL;
 	watchdogHandle = Watchdog_open(CONFIG_WATCHDOG_0, &watchdogParams);
 	if (watchdogHandle == NULL) {
-// Spin forever
-//		while (1)
-//			;
+		ESLO_error();
 	}
 
 	updateXlFromSettings(true); // turn on interrupt here
@@ -1082,6 +1114,12 @@ static void SimplePeripheral_init(void) {
 // don't turn on because advertising is enabled on startup below, turn on at conn. terminate
 	Util_constructClock(&clkESLOAdvSleep, SimplePeripheral_clockHandler,
 	ES_ADV_SLEEP_PERIOD_MIN, 0, false, (UArg) &argESLOAdvSleep);
+
+	// turn on later with updated values from ESLOSettings
+	Util_constructClock(&clkESLODuty, SimplePeripheral_clockHandler, 0, 0,
+	false, (UArg) &argESLODuty);
+	Util_constructClock(&clkESLODuration, SimplePeripheral_clockHandler, 0, 0,
+	false, (UArg) &argESLODuration);
 
 // Set the Device Name characteristic in the GAP GATT Service
 // For more information, see the section in the User's Guide:
@@ -1450,6 +1488,12 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 	case ES_ADV_SLEEP:
 		advSleep();
 		break;
+	case ES_DUTY:
+		esloRecDuty();
+		break;
+	case ES_DURATION:
+		esloRecDuration();
+		break;
 	default:
 // Do nothing.
 		break;
@@ -1581,6 +1625,8 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 
 		if (pPkt->hdr.status == SUCCESS) {
 			Util_stopClock(&clkESLOAdvSleep); // stop advSleep duty cycle
+			Util_stopClock(&clkESLODuty);
+			Util_stopClock(&clkESLODuration);
 
 			// Add connection to list and start RSSI
 			SimplePeripheral_addConn(pPkt->connectionHandle);
@@ -1631,13 +1677,15 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 			// always save, if device is not sleeping they will have no effect when reloaded
 			memcpy(esloSettingsSleep, esloSettings,
 			SIMPLEPROFILE_CHAR3_LEN);
-			if (esloSettings[Set_SleepWake] == ESLO_MODULE_OFF) {
+			if (esloSettings[Set_Record] == ESLO_MODULE_OFF) {
 				esloSleep();
+			} else {
+				esloRecDuty(); // this has to come after esloSettingsSleep is set
 			}
 
 			BLE_LOG_INT_STR(0, BLE_LOG_MODULE_APP, "APP : GAP msg: status=%d, opcode=%s\n", 0, "GAP_LINK_TERMINATED_EVENT");
 
-			isAsleep = 1;
+			isAdvLong = 1; // this is for AdvLong logic
 			if (esloSettings[Set_AdvLong] > 0x00) { // long
 				Util_startClock(&clkESLOAdvSleep);
 			} else { // keep advertising on at full rate
@@ -1648,7 +1696,6 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 			}
 
 		}
-
 		break;
 	}
 
@@ -1864,7 +1911,6 @@ static void ESLO_performPeriodicTask() {
 	if (vbatt_uV < V_DROPOUT || esloAddr >= FLASH_SIZE) {
 		esloSleep(); // good night
 		Util_stopClock(&clkESLOPeriodic); // never come back unless user initiates it
-// set parameter to notify condition?
 	}
 }
 
@@ -1902,32 +1948,25 @@ static void SimplePeripheral_clockHandler(UArg arg) {
 	spClockEventData_t *pData = (spClockEventData_t*) arg;
 
 	if (pData->event == SP_PERIODIC_EVT) {
-// Start the next period
 		Util_startClock(&clkNotifyVitals);
-// Post event to wake up the application
 		SimplePeripheral_enqueueMsg(SP_PERIODIC_EVT, NULL);
 	} else if (pData->event == ES_PERIODIC_EVT) {
-// Start the next period
 		Util_startClock(&clkESLOPeriodic);
-// Post event to wake up the application
 		SimplePeripheral_enqueueMsg(ES_PERIODIC_EVT, NULL);
 	} else if (pData->event == ES_AXY_EVT) {
-// Start the next period
 		Util_startClock(&clkESLOAxy);
-// Post event to wake up the application
 		SimplePeripheral_enqueueMsg(ES_AXY_EVT, NULL);
 	} else if (pData->event == SP_READ_RPA_EVT) {
-// Start the next period
 		Util_startClock(&clkRpaRead);
-// Post event to read the current RPA
 		SimplePeripheral_enqueueMsg(SP_READ_RPA_EVT, NULL);
 	} else if (pData->event == ES_ADV_SLEEP) {
-// Start the next period
-		Util_startClock(&clkESLOAdvSleep);
-// Post event to wake up the application
 		SimplePeripheral_enqueueMsg(ES_ADV_SLEEP, NULL);
+	} else if (pData->event == ES_DUTY) {
+		SimplePeripheral_enqueueMsg(ES_DUTY, NULL); // handle clocks elsewhere
+	} else if (pData->event == ES_DURATION) {
+		Util_stopClock(&clkESLODuration); // just stop it here
+		SimplePeripheral_enqueueMsg(ES_DURATION, NULL);
 	} else if (pData->event == SP_SEND_PARAM_UPDATE_EVT) {
-// Send message to app
 		SimplePeripheral_enqueueMsg(SP_SEND_PARAM_UPDATE_EVT, pData);
 	}
 }
