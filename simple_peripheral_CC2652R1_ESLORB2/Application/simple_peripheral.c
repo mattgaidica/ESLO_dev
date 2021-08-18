@@ -370,8 +370,8 @@ spClockEventData_t argESLODuty = { .event = ES_DUTY };
 static Clock_Struct clkESLODuration;
 spClockEventData_t argESLODuration = { .event = ES_DURATION };
 
-uint8_t esloSettings[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
-uint8_t esloSettingsSleep[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
+static uint8_t esloSettings[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
+static uint8_t esloSettingsSleep[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
 
 bool isPaired = false;
 
@@ -439,8 +439,8 @@ NVS_Params nvsParams;
 
 static void esloRecDuty() {
 	// Start the next period
-	uint32_t dutyInMillis = 1000 * 60 * 60 * esloSettings[Set_EEGDuty];
-	uint32_t durationInMillis = 1000 * 60 * esloSettings[Set_EEGDuration];
+	uint32_t dutyInMillis = 1000 * (uint32_t) esloSettings[Set_EEGDuty]; // *60*60
+	uint32_t durationInMillis = 1000 * (uint32_t) esloSettings[Set_EEGDuration]; // *60
 	if (dutyInMillis > 0 & durationInMillis > 0) {
 		if (dutyInMillis != durationInMillis) {
 			Util_restartClock(&clkESLODuty, dutyInMillis);
@@ -466,6 +466,7 @@ static void esloRecDuty() {
 // duration clock is stopped in clock handler
 static void esloRecDuration() {
 	// turn off EEG
+	GPIO_write(LED_1, 0x00); // !! RM for production
 	esloSettings[Set_EEG1] = 0;
 	esloSettings[Set_EEG2] = 0;
 	esloSettings[Set_EEG3] = 0;
@@ -1965,6 +1966,7 @@ static void SimplePeripheral_clockHandler(UArg arg) {
 		SimplePeripheral_enqueueMsg(ES_DUTY, NULL); // handle clocks elsewhere
 	} else if (pData->event == ES_DURATION) {
 		Util_stopClock(&clkESLODuration); // just stop it here
+		eegInterrupt(false);
 		SimplePeripheral_enqueueMsg(ES_DURATION, NULL);
 	} else if (pData->event == SP_SEND_PARAM_UPDATE_EVT) {
 		SimplePeripheral_enqueueMsg(SP_SEND_PARAM_UPDATE_EVT, pData);
