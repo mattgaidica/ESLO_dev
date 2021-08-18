@@ -3,7 +3,8 @@
  @file  simple_peripheral.c
 
  Matt Gaidica, ESLO_RB2 device
-
+ https://dev.ti.com/tirex/content/simplelink_cc13x0_sdk_3_20_00_23/docs/proprietary-rf/proprietary-rf-users-guide/proprietary-rf-guide/debugging-index.html#deciphering-cpu-exceptions
+ https://training.ti.com/sites/default/files/docs/TIRTOS_CCSDebugging.pdf
  ******************************************************************************/
 #include <ti/sysbios/family/arm/m3/Hwi.h>
 
@@ -65,7 +66,7 @@
  * CONSTANTS
  */
 // How often to perform periodic event (in ms)
-#define SP_PERIODIC_EVT_PERIOD               3000	// ms
+#define ES_VITALS_EVT_PERIOD                 3000	// ms
 #define ES_PERIODIC_EVT_PERIOD				 60000	// ms
 #define ES_AXY_PERIOD				 		 1000	// ms
 #define ES_ADV_SLEEP_PERIOD_MIN				 30		// s
@@ -86,20 +87,17 @@
 #define SP_ADV_EVT                           3
 #define SP_PAIR_STATE_EVT                    4
 #define SP_PASSCODE_EVT                      5
-#define SP_PERIODIC_EVT                      6
-#define SP_READ_RPA_EVT                      7
-#define SP_SEND_PARAM_UPDATE_EVT             8
-#define SP_CONN_EVT                          9
-#define ES_EEG_NOTIF						 10
-#define ES_XL_NOTIF							 11
-#define ES_PERIODIC_EVT						 12
-#define ES_EXPORT_DATA						 13
-#define ES_AXY_EVT						     14
-#define ES_EXPORT_POST						 15
-#define ES_EXPORT_DONE					     16
-#define ES_ADV_SLEEP					     17
-#define ES_DUTY								 18
-#define ES_DURATION							 19
+#define SP_READ_RPA_EVT                      6
+#define SP_SEND_PARAM_UPDATE_EVT             7
+#define SP_CONN_EVT                          8
+#define ES_PERIODIC_EVT                      9
+#define ES_VITALS_EVT						 10
+#define ES_EEG_NOTIF						 11
+#define ES_XL_NOTIF							 12
+#define ES_AXY_EVT						     13
+#define ES_ADV_SLEEP					     14
+#define ES_DUTY								 15
+#define ES_DURATION							 16
 
 // Internal Events for RTOS application
 #define SP_ICALL_EVT                         ICALL_MSG_EVENT_ID // Event_Id_31
@@ -130,11 +128,9 @@
  * TYPEDEFS
  */
 
-// Auto connect availble groups
+// Auto connect
 enum {
 	AUTOCONNECT_DISABLE = 0,              // Disable
-	AUTOCONNECT_GROUP_A = 1,              // Group A
-	AUTOCONNECT_GROUP_B = 2               // Group B
 };
 
 // App event passed from stack modules. This type is defined by the application
@@ -213,13 +209,13 @@ Task_Struct spTask;
 #endif
 uint8_t spTaskStack[SP_TASK_STACK_SIZE];
 
-#define APP_EVT_EVENT_MAX 0x9
-char *appEventStrings[] = { "APP_STATE_CHANGE_EVT     ",
-		"APP_CHAR_CHANGE_EVT      ", "APP_KEY_CHANGE_EVT       ",
-		"APP_ADV_EVT              ", "APP_PAIR_STATE_EVT       ",
-		"APP_PASSCODE_EVT         ", "APP_READ_RPA_EVT         ",
-		"APP_PERIODIC_EVT         ", "APP_SEND_PARAM_UPDATE_EVT",
-		"APP_CONN_EVT             ", };
+//#define APP_EVT_EVENT_MAX 0x9
+//char *appEventStrings[] = { "APP_STATE_CHANGE_EVT     ",
+//		"APP_CHAR_CHANGE_EVT      ", "APP_KEY_CHANGE_EVT       ",
+//		"APP_ADV_EVT              ", "APP_PAIR_STATE_EVT       ",
+//		"APP_PASSCODE_EVT         ", "APP_READ_RPA_EVT         ",
+//		"APP_PERIODIC_EVT         ", "APP_SEND_PARAM_UPDATE_EVT",
+//		"APP_CONN_EVT             ", };
 
 /*********************************************************************
  * LOCAL VARIABLES
@@ -238,15 +234,9 @@ static Queue_Handle appMsgQueueHandle;
 
 // Clock instance for internal periodic events. Only one is needed since
 // GattServApp will handle notifying all connected GATT clients
-static Clock_Struct clkNotifyVitals;
 // Clock instance for RPA read events.
-static Clock_Struct clkRpaRead;
-
-// Memory to pass periodic event ID to clock handler
-spClockEventData_t argPeriodic = { .event = SP_PERIODIC_EVT };
-
-// Memory to pass RPA read event ID to clock handler
-spClockEventData_t argRpaRead = { .event = SP_READ_RPA_EVT };
+//static Clock_Struct clkRpaRead;
+//spClockEventData_t argRpaRead = { .event = SP_READ_RPA_EVT };
 
 // Per-handle connection info
 static spConnRec_t connList[MAX_NUM_BLE_CONNS];
@@ -345,7 +335,6 @@ static void mapEsloSettings(uint8_t *esloSettingsNew);
 static void ESLO_performPeriodicTask();
 
 static void esloSetVersion();
-static void exportDataBLE();
 static void readBatt();
 static void readTherm();
 static void esloRecoverSession();
@@ -353,7 +342,6 @@ static void esloUpdateNVS();
 static void esloResetVersion();
 //static void WatchdogCallbackFxn();
 static void advSleep();
-static void esloRecDuration();
 
 static Clock_Struct clkESLOPeriodic;
 spClockEventData_t argESLOPeriodic = { .event = ES_PERIODIC_EVT };
@@ -367,6 +355,9 @@ uint8_t isAdvLong = 0;
 
 static Clock_Struct clkESLODuty;
 spClockEventData_t argESLODuty = { .event = ES_DUTY };
+
+static Clock_Struct clkNotifyVitals;
+spClockEventData_t argESLOVitals = { .event = ES_VITALS_EVT };
 
 static Clock_Struct clkESLODuration;
 spClockEventData_t argESLODuration = { .event = ES_DURATION };
@@ -438,41 +429,14 @@ NVS_Handle nvsHandle;
 NVS_Attrs regionAttrs;
 NVS_Params nvsParams;
 
-static void esloRecDuty() {
-	// Start the next period
-	uint32_t dutyInMillis = 1000 * (uint32_t) esloSettings[Set_EEGDuty]; // *60*60
-	uint32_t durationInMillis = 1000 * (uint32_t) esloSettings[Set_EEGDuration]; // *60
-	if (dutyInMillis > 0 & durationInMillis > 0) {
-		if (dutyInMillis != durationInMillis) {
-			Util_restartClock(&clkESLODuty, dutyInMillis);
-			Util_restartClock(&clkESLODuration, durationInMillis);
-			// write timestamp
-			eslo_dt eslo;
-			eslo.type = Type_AbsoluteTime;
-			eslo.data = absoluteTime;
-			ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
-			// reinstate EEG settings
-			esloSettings[Set_EEG1] = esloSettingsSleep[Set_EEG1];
-			esloSettings[Set_EEG2] = esloSettingsSleep[Set_EEG2];
-			esloSettings[Set_EEG3] = esloSettingsSleep[Set_EEG3];
-			esloSettings[Set_EEG4] = esloSettingsSleep[Set_EEG4];
-			updateEEGFromSettings(true);
-		} // else: record full out
-	} else {
-		// all other states are invalid, turn off EEG
-		esloRecDuration();
-	}
-}
+volatile uintptr_t *excPC = 0;
+volatile uintptr_t *excCaller = 0;
+void execHandlerHook(Hwi_ExcContext *ctx) {
+	excPC = ctx->pc;     // Program counter where exception occurred
+	excCaller = ctx->lr; // Link Register when exception occurred
 
-// duration clock is stopped in clock handler
-static void esloRecDuration() {
-	// turn off EEG
-	GPIO_write(LED_1, 0x00); // !! RM for production
-	esloSettings[Set_EEG1] = 0;
-	esloSettings[Set_EEG2] = 0;
-	esloSettings[Set_EEG3] = 0;
-	esloSettings[Set_EEG4] = 0;
-	updateEEGFromSettings(false);
+	while (2)
+		;
 }
 
 static void advSleep() {
@@ -543,33 +507,33 @@ static void esloRecoverSession() {
 
 static void esloSetVersion() {
 	eslo_dt eslo;
-	esloVersion = GitCommit; // this is not semi-static
+	esloVersion = GitCommit; // this is semi-static
 //	ESLO_GenerateVersion(&esloVersion, CONFIG_TRNG_1);
 	eslo.type = Type_Version;
 	eslo.data = esloVersion;
 	ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
 }
 
-static void exportDataBLE() {
-//	uint8_t modBlock = esloExportBlock % 16;
-	uint8_t ii;
-	uint32_t exportAddr = esloExportBlock * 0x1000;
-
-	if (exportAddr < esloAddr) {
-		Power_disablePolicy();
-		ret = FlashPageRead(exportAddr, readBuf); // read whole page
-		for (ii = 0; ii < 16; ii++) {
-			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR7,
-			SIMPLEPROFILE_CHAR7_LEN, readBuf + (ii * 128));
-//			SimplePeripheral_enqueueMsg(ES_EXPORT_POST, readBuf + (ii * 128));
-		}
-	} else {
-		Power_enablePolicy();
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6,
-		SIMPLEPROFILE_CHAR6_LEN, &exportAddr);
-//		SimplePeripheral_enqueueMsg(ES_EXPORT_DONE, NULL);
-	}
-}
+//static void exportDataBLE() {
+////	uint8_t modBlock = esloExportBlock % 16;
+//	uint8_t ii;
+//	uint32_t exportAddr = esloExportBlock * 0x1000;
+//
+//	if (exportAddr < esloAddr) {
+//		Power_disablePolicy();
+//		ret = FlashPageRead(exportAddr, readBuf); // read whole page
+//		for (ii = 0; ii < 16; ii++) {
+//			SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR7,
+//			SIMPLEPROFILE_CHAR7_LEN, readBuf + (ii * 128));
+////			SimplePeripheral_enqueueMsg(ES_EXPORT_POST, readBuf + (ii * 128));
+//		}
+//	} else {
+//		Power_enablePolicy();
+//		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6,
+//		SIMPLEPROFILE_CHAR6_LEN, &exportAddr);
+////		SimplePeripheral_enqueueMsg(ES_EXPORT_DONE, NULL);
+//	}
+//}
 
 static void readTherm() {
 	adcRes = ADC_convert(adc_therm, &adcValue);
@@ -703,7 +667,7 @@ static void eegDataHandler(void) {
 			return;
 		}
 		// !! RM FOR PRODUCTION
-//		GPIO_write(LED_1, !GPIO_read(LED_1));
+		GPIO_write(LED_0, 0x01);
 
 		if (esloSettings[Set_EEG1]) {
 			eslo_eeg1.type = Type_EEG1;
@@ -867,7 +831,7 @@ static uint8_t updateEEGFromSettings(bool actOnInterrupt) {
 			GPIO_CFG_OUT_STD | GPIO_CFG_OUT_STR_LOW | GPIO_CFG_OUT_LOW); // !!consider rm now that 1.8v is supplied
 			eeg_online = ADS_init();
 			enableInterrupt = true;
-			if (actOnInterrupt) {
+			if (actOnInterrupt & eeg_online == ESLO_PASS) {
 				eegInterrupt(enableInterrupt);
 			}
 		}
@@ -1084,7 +1048,6 @@ void SimplePeripheral_createTask(void) {
  *          profile initialization/setup.
  */
 static void SimplePeripheral_init(void) {
-	BLE_LOG_INT_TIME(0, BLE_LOG_MODULE_APP, "APP : ---- init ", SP_TASK_PRIORITY);
 // ******************************************************************
 // N0 STACK API CALLS CAN OCCUR BEFORE THIS CALL TO ICall_registerApp
 // ******************************************************************
@@ -1105,7 +1068,7 @@ static void SimplePeripheral_init(void) {
 
 // Create one-shot clock for internal periodic events.
 	Util_constructClock(&clkNotifyVitals, SimplePeripheral_clockHandler,
-	SP_PERIODIC_EVT_PERIOD, 0, false, (UArg) &argPeriodic);
+	ES_VITALS_EVT_PERIOD, 0, false, (UArg) &argESLOVitals);
 
 	Util_constructClock(&clkESLOPeriodic, SimplePeripheral_clockHandler,
 	ES_PERIODIC_EVT_PERIOD, 0, false, (UArg) &argESLOPeriodic);
@@ -1209,7 +1172,6 @@ static void SimplePeripheral_init(void) {
 // Initialize Connection List
 	SimplePeripheral_clearConnListEntry(LINKDB_CONNHANDLE_ALL);
 
-	BLE_LOG_INT_TIME(0, BLE_LOG_MODULE_APP, "APP : ---- call GAP_DeviceInit", GAP_PROFILE_PERIPHERAL);
 //Initialize GAP layer for Peripheral role and register to receive GAP events
 	GAP_DeviceInit(GAP_PROFILE_PERIPHERAL, selfEntity, addrMode,
 			&pRandomAddress);
@@ -1297,8 +1259,6 @@ static void SimplePeripheral_taskFxn(UArg a0, UArg a1) {
 static uint8_t SimplePeripheral_processStackMsg(ICall_Hdr *pMsg) {
 // Always dealloc pMsg unless set otherwise
 	uint8_t safeToDealloc = TRUE;
-
-	BLE_LOG_INT_INT(0, BLE_LOG_MODULE_APP, "APP : Stack msg status=%d, event=0x%x\n", pMsg->status, pMsg->event);
 
 	switch (pMsg->event) {
 	case GAP_MSG_EVENT:
@@ -1425,12 +1385,6 @@ static uint8_t SimplePeripheral_processGATTMsg(gattMsgEvent_t *pMsg) {
 static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 	bool dealloc = TRUE;
 
-	if (pMsg->event <= APP_EVT_EVENT_MAX) {
-		BLE_LOG_INT_STR(0, BLE_LOG_MODULE_APP, "APP : App msg status=%d, event=%s\n", 0, appEventStrings[pMsg->event]);
-	} else {
-		BLE_LOG_INT_INT(0, BLE_LOG_MODULE_APP, "APP : App msg status=%d, event=0x%x\n", 0, pMsg->event);
-	}
-
 	switch (pMsg->event) {
 	case SP_CHAR_CHANGE_EVT:
 		SimplePeripheral_processCharValueChangeEvt(*(uint8_t*) (pMsg->pData));
@@ -1444,15 +1398,6 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 	case SP_PASSCODE_EVT:
 		SimplePeripheral_processPasscode((spPasscodeData_t*) (pMsg->pData));
 		break;
-	case SP_PERIODIC_EVT:
-		SimplePeripheral_notifyVitals();
-		break;
-	case ES_PERIODIC_EVT:
-		ESLO_performPeriodicTask();
-		break;
-	case ES_AXY_EVT:
-		xlDataHandler(); // already in queue, go get data
-		break;
 	case SP_READ_RPA_EVT:
 		SimplePeripheral_updateRPA();
 		break;
@@ -1460,9 +1405,7 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 // Extract connection handle from data
 		uint16_t connHandle =
 				*(uint16_t*) (((spClockEventData_t*) pMsg->pData)->data);
-
 		SimplePeripheral_processParamUpdate(connHandle);
-
 // This data is not dynamically allocated
 		dealloc = FALSE;
 		break;
@@ -1470,31 +1413,46 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 	case SP_CONN_EVT:
 		SimplePeripheral_processConnEvt((Gap_ConnEventRpt_t*) (pMsg->pData));
 		break;
+	case ES_PERIODIC_EVT:
+		ESLO_performPeriodicTask();
+		break;
+	case ES_VITALS_EVT:
+		SimplePeripheral_notifyVitals();
+		break;
+	case ES_AXY_EVT:
+		xlDataHandler(); // already in queue, go get data
+		break;
 	case ES_EEG_NOTIF:
 		eegDataHandler();
 		break;
 	case ES_XL_NOTIF:
 		xlDataHandler();
 		break;
-	case ES_EXPORT_DATA:
-		exportDataBLE();
-		break;
-	case ES_EXPORT_POST:
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR7,
-		SIMPLEPROFILE_CHAR7_LEN, (void*) (pMsg->pData));
-		break;
-	case ES_EXPORT_DONE:
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6,
-		SIMPLEPROFILE_CHAR6_LEN, NULL);
-		break;
 	case ES_ADV_SLEEP:
 		advSleep();
 		break;
 	case ES_DUTY:
-		GPIO_write(LED_0,!GPIO_read(LED_0));
+		GPIO_write(LED_1, 0x01);
+		uint32_t durationInMillis = 1000
+				* (uint32_t) esloSettings[Set_EEGDuration]; // *60
+		if (durationInMillis > 0) {
+			// reinstate EEG settings
+			esloSettings[Set_EEG1] = esloSettingsSleep[Set_EEG1];
+			esloSettings[Set_EEG2] = esloSettingsSleep[Set_EEG2];
+			esloSettings[Set_EEG3] = esloSettingsSleep[Set_EEG3];
+			esloSettings[Set_EEG4] = esloSettingsSleep[Set_EEG4];
+			updateEEGFromSettings(true);
+			Util_restartClock(&clkESLODuration, durationInMillis);
+		}
+		GPIO_write(LED_1, 0x00);
 		break;
 	case ES_DURATION:
-		esloRecDuration();
+		GPIO_write(LED_0, 0x00);
+		esloSettings[Set_EEG1] = 0;
+		esloSettings[Set_EEG2] = 0;
+		esloSettings[Set_EEG3] = 0;
+		esloSettings[Set_EEG4] = 0;
+		updateEEGFromSettings(false);
 		break;
 	default:
 // Do nothing.
@@ -1543,12 +1501,10 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 			DevInfo_SetParameter(DEVINFO_SYSTEM_ID, DEVINFO_SYSTEM_ID_LEN,
 					systemId);
 
-			BLE_LOG_INT_TIME(0, BLE_LOG_MODULE_APP, "APP : ---- got GAP_DEVICE_INIT_DONE_EVENT", 0);
 			// Setup and start Advertising
 			// For more information, see the GAP section in the User's Guide:
 			// http://software-dl.ti.com/lprf/ble5stack-latest/
 
-			BLE_LOG_INT_INT(0, BLE_LOG_MODULE_APP, "APP : ---- call GapAdv_create set=%d,%d\n", 0, 0);
 			// Create Advertisement set #1 and assign handle
 			status = GapAdv_create(&SimplePeripheral_advCallback, &advParams1,
 					&advHandleLegacy);
@@ -1576,7 +1532,6 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 					GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
 			SIMPLEPERIPHERAL_ASSERT(status == SUCCESS);
 
-			BLE_LOG_INT_INT(0, BLE_LOG_MODULE_APP, "APP : ---- call GapAdv_create set=%d,%d\n", 1, 0);
 			// Create Advertisement set #2 and assign handle
 			status = GapAdv_create(&SimplePeripheral_advCallback, &advParams2,
 					&advHandleLongRange);
@@ -1593,7 +1548,6 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 							| GAP_ADV_EVT_MASK_END_AFTER_DISABLE
 							| GAP_ADV_EVT_MASK_SET_TERMINATED);
 
-			BLE_LOG_INT_TIME(0, BLE_LOG_MODULE_APP, "APP : ---- GapAdv_enable", 0);
 			// Enable long range advertising for set #2
 			status = GapAdv_enable(advHandleLongRange,
 					GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
@@ -1608,8 +1562,8 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 				SimplePeripheral_updateRPA();
 
 				// Create one-shot clock for RPA check event.
-				Util_constructClock(&clkRpaRead, SimplePeripheral_clockHandler,
-				READ_RPA_PERIOD, 0, true, (UArg) &argRpaRead);
+//				Util_constructClock(&clkRpaRead, SimplePeripheral_clockHandler,
+//				READ_RPA_PERIOD, 0, true, (UArg) &argRpaRead);
 			}
 		}
 
@@ -1619,7 +1573,6 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 	case GAP_LINK_ESTABLISHED_EVENT: {
 		gapEstLinkReqEvent_t *pPkt = (gapEstLinkReqEvent_t*) pMsg;
 
-		BLE_LOG_INT_TIME(0, BLE_LOG_MODULE_APP, "APP : ---- got GAP_LINK_ESTABLISHED_EVENT", 0);
 // Display the amount of current connections
 		uint8_t numActive = linkDB_NumActive("");
 //      Display_printf(dispHandle, SP_ROW_STATUS_2, 0, "Num Conns: %d",
@@ -1677,14 +1630,14 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 			if (esloSettings[Set_Record] == ESLO_MODULE_OFF) {
 				esloSleep();
 			} else {
-				uint32_t dutyInMillis = 1000 * (uint32_t) esloSettings[Set_EEGDuty]; // *60*60
+				uint32_t dutyInMillis = 1000
+						* (uint32_t) esloSettings[Set_EEGDuty]; // *60*60
 				if (dutyInMillis > 0) {
+					GPIO_write(LED_0, 0x00);
 					Util_rescheduleClock(&clkESLODuty, dutyInMillis);
 					Util_startClock(&clkESLODuty);
 				}
 			}
-
-			BLE_LOG_INT_STR(0, BLE_LOG_MODULE_APP, "APP : GAP msg: status=%d, opcode=%s\n", 0, "GAP_LINK_TERMINATED_EVENT");
 
 			isAdvLong = 1; // this is for AdvLong logic
 			if (esloSettings[Set_AdvLong] > 0x00) { // long
@@ -1843,11 +1796,11 @@ static void SimplePeripheral_processCharValueChangeEvt(uint8_t paramId) {
 		ret = SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR3, pValue);
 		mapEsloSettings(pValue);
 		break;
-	case SIMPLEPROFILE_CHAR6:
-		ret = SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR6, pValue);
-		memcpy(&esloExportBlock, pValue, sizeof(uint32_t));
-		SimplePeripheral_enqueueMsg(ES_EXPORT_DATA, NULL);
-		break;
+//	case SIMPLEPROFILE_CHAR6:
+//		ret = SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR6, pValue);
+//		memcpy(&esloExportBlock, pValue, sizeof(uint32_t));
+//		SimplePeripheral_enqueueMsg(ES_EXPORT_DATA, NULL);
+//		break;
 	default:
 // should not reach here!
 		break;
@@ -1861,7 +1814,7 @@ static void SimplePeripheral_processCharValueChangeEvt(uint8_t paramId) {
  * @fn      SimplePeripheral_notifyVitals
  *
  * @brief   Perform a periodic application task. This function gets called
- *          every five seconds (SP_PERIODIC_EVT_PERIOD). In this example,
+ *          every five seconds (ES_VITALS_EVT_PERIOD). In this example,
  *          the value of the third characteristic in the SimpleGATTProfile
  *          service is retrieved from the profile, and then copied into the
  *          value of the the fourth characteristic.
@@ -1948,25 +1901,23 @@ static void SimplePeripheral_updateRPA(void) {
 static void SimplePeripheral_clockHandler(UArg arg) {
 	spClockEventData_t *pData = (spClockEventData_t*) arg;
 
-	if (pData->event == SP_PERIODIC_EVT) {
-		Util_startClock(&clkNotifyVitals);
-		SimplePeripheral_enqueueMsg(SP_PERIODIC_EVT, NULL);
-	} else if (pData->event == ES_PERIODIC_EVT) {
+	if (pData->event == ES_PERIODIC_EVT) {
 		Util_startClock(&clkESLOPeriodic);
 		SimplePeripheral_enqueueMsg(ES_PERIODIC_EVT, NULL);
+	} else if (pData->event == ES_VITALS_EVT) {
+		Util_startClock(&clkNotifyVitals);
+		SimplePeripheral_enqueueMsg(ES_VITALS_EVT, NULL);
 	} else if (pData->event == ES_AXY_EVT) {
 		Util_startClock(&clkESLOAxy);
 		SimplePeripheral_enqueueMsg(ES_AXY_EVT, NULL);
-	} else if (pData->event == SP_READ_RPA_EVT) {
-		Util_startClock(&clkRpaRead);
-		SimplePeripheral_enqueueMsg(SP_READ_RPA_EVT, NULL);
+//	} else if (pData->event == SP_READ_RPA_EVT) {
+//		Util_startClock(&clkRpaRead);
+//		SimplePeripheral_enqueueMsg(SP_READ_RPA_EVT, NULL);
 	} else if (pData->event == ES_ADV_SLEEP) {
 		SimplePeripheral_enqueueMsg(ES_ADV_SLEEP, NULL);
-	} else if (pData->event == ES_DUTY) {
-		SimplePeripheral_enqueueMsg(ES_DUTY, NULL); // handle clocks elsewhere
+	} else if (pData->event == ES_DUTY) { // !! not sure if these need enqueue to run in app context
+		SimplePeripheral_enqueueMsg(ES_DUTY, NULL);
 	} else if (pData->event == ES_DURATION) {
-		Util_stopClock(&clkESLODuration); // just stop it here
-		eegInterrupt(false);
 		SimplePeripheral_enqueueMsg(ES_DURATION, NULL);
 	} else if (pData->event == SP_SEND_PARAM_UPDATE_EVT) {
 		SimplePeripheral_enqueueMsg(SP_SEND_PARAM_UPDATE_EVT, pData);
@@ -2004,7 +1955,6 @@ static void SimplePeripheral_advCallback(uint32_t event, void *pBuf,
 static void SimplePeripheral_processAdvEvent(spGapAdvEventData_t *pEventData) {
 	switch (pEventData->event) {
 	case GAP_EVT_ADV_START_AFTER_ENABLE :
-		BLE_LOG_INT_TIME(0, BLE_LOG_MODULE_APP, "APP : ---- GAP_EVT_ADV_START_AFTER_ENABLE", 0);
 //      Display_printf(dispHandle, SP_ROW_ADVSTATE, 0, "Adv Set %d Enabled",
 //                     *(uint8_t *)(pEventData->pBuf));
 		break;

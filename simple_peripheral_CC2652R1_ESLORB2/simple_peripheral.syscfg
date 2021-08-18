@@ -1,8 +1,8 @@
 /**
  * These arguments were used when this file was generated. They will be automatically applied on subsequent loads
  * via the GUI or CLI. Run CLI with '--help' for additional information on how to override these arguments.
- * @cliArgs --board "/ti/boards/CC26X2R1_LAUNCHXL" --product "simplelink_cc13x2_26x2_sdk@4.40.04.04"
- * @versions {"data":"2021031521","timestamp":"2021031521","tool":"1.8.0+1863","templates":null}
+ * @cliArgs --board "/ti/boards/CC26X2R1_LAUNCHXL" --product "simplelink_cc13x2_26x2_sdk@5.20.00.52"
+ * @versions {"tool":"1.9.0+2015","templates":null}
  */
 
 /**
@@ -45,7 +45,6 @@ const SPI1        = SPI.addInstance();
 const SPI2        = SPI.addInstance();
 const TRNG        = scripting.addModule("/ti/drivers/TRNG");
 const TRNG1       = TRNG.addInstance();
-const TRNG2       = TRNG.addInstance();
 const UART        = scripting.addModule("/ti/drivers/UART", {}, false);
 const UART1       = UART.addInstance();
 const Watchdog    = scripting.addModule("/ti/drivers/Watchdog", {}, false);
@@ -225,8 +224,6 @@ SPI2.mosiPinInstance.$name = "CONFIG_PIN_7";
 SPI2.mosiPinInstance.mode  = "Input";
 
 TRNG1.$name = "CONFIG_TRNG_0";
-
-TRNG2.$name = "CONFIG_TRNG_1";
 
 UART1.$name               = "CONFIG_UART_0";
 UART1.$hardware           = system.deviceData.board.components.XDS110UART;
