@@ -2,10 +2,11 @@
 
  @file  simple_peripheral.c
 
- Group: WCS, BTS
- Target Device: cc13x2_26x2
+ Matt Gaidica, ESLO_RB2 device
 
  ******************************************************************************/
+#include <ti/sysbios/family/arm/m3/Hwi.h>
+
 #include <stdint.h>
 #include <unistd.h>
 
@@ -702,7 +703,7 @@ static void eegDataHandler(void) {
 			return;
 		}
 		// !! RM FOR PRODUCTION
-		GPIO_write(LED_1, !GPIO_read(LED_1));
+//		GPIO_write(LED_1, !GPIO_read(LED_1));
 
 		if (esloSettings[Set_EEG1]) {
 			eslo_eeg1.type = Type_EEG1;
@@ -1490,7 +1491,7 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 		advSleep();
 		break;
 	case ES_DUTY:
-		esloRecDuty();
+		GPIO_write(LED_0,!GPIO_read(LED_0));
 		break;
 	case ES_DURATION:
 		esloRecDuration();
@@ -1659,12 +1660,7 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 
 	case GAP_LINK_TERMINATED_EVENT: {
 		gapTerminateLinkEvent_t *pPkt = (gapTerminateLinkEvent_t*) pMsg;
-
-// Display the amount of current connections
 		uint8_t numActive = linkDB_NumActive("");
-//      Display_printf(dispHandle, SP_ROW_STATUS_1, 0, "Device Disconnected!");
-//      Display_printf(dispHandle, SP_ROW_STATUS_2, 0, "Num Conns: %d",
-//                     (uint16_t)numActive);
 
 // Remove the connection from the list and disable RSSI if needed
 		SimplePeripheral_removeConn(pPkt->connectionHandle);
@@ -1681,7 +1677,11 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 			if (esloSettings[Set_Record] == ESLO_MODULE_OFF) {
 				esloSleep();
 			} else {
-				esloRecDuty(); // this has to come after esloSettingsSleep is set
+				uint32_t dutyInMillis = 1000 * (uint32_t) esloSettings[Set_EEGDuty]; // *60*60
+				if (dutyInMillis > 0) {
+					Util_rescheduleClock(&clkESLODuty, dutyInMillis);
+					Util_startClock(&clkESLODuty);
+				}
 			}
 
 			BLE_LOG_INT_STR(0, BLE_LOG_MODULE_APP, "APP : GAP msg: status=%d, opcode=%s\n", 0, "GAP_LINK_TERMINATED_EVENT");
