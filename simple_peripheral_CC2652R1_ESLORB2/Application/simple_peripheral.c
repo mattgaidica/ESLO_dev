@@ -353,14 +353,14 @@ static Clock_Struct clkESLOAdvSleep;
 spClockEventData_t argESLOAdvSleep = { .event = ES_ADV_SLEEP };
 uint8_t isAdvLong = 0;
 
-static Clock_Struct clkESLODuty;
-spClockEventData_t argESLODuty = { .event = ES_DUTY };
-
 static Clock_Struct clkNotifyVitals;
 spClockEventData_t argESLOVitals = { .event = ES_VITALS_EVT };
 
 static Clock_Struct clkESLODuration;
 spClockEventData_t argESLODuration = { .event = ES_DURATION };
+
+static Clock_Struct clkESLODuty;
+spClockEventData_t argESLODuty = { .event = ES_DUTY };
 
 static uint8_t esloSettings[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
 static uint8_t esloSettingsSleep[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
@@ -666,8 +666,6 @@ static void eegDataHandler(void) {
 		if (status == 0x00000000) {
 			return;
 		}
-		// !! RM FOR PRODUCTION
-		GPIO_write(LED_0, 0x01);
 
 		if (esloSettings[Set_EEG1]) {
 			eslo_eeg1.type = Type_EEG1;
@@ -1083,6 +1081,7 @@ static void SimplePeripheral_init(void) {
 	// turn on later with updated values from ESLOSettings
 	Util_constructClock(&clkESLODuty, SimplePeripheral_clockHandler, 0, 0,
 	false, (UArg) &argESLODuty);
+
 	Util_constructClock(&clkESLODuration, SimplePeripheral_clockHandler, 0, 0,
 	false, (UArg) &argESLODuration);
 
@@ -1431,10 +1430,9 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 	case ES_ADV_SLEEP:
 		advSleep();
 		break;
-	case ES_DUTY:
-		GPIO_write(LED_1, 0x01);
-		uint32_t durationInMillis = 1000
-				* (uint32_t) esloSettings[Set_EEGDuration]; // *60
+	case ES_DUTY: {
+		uint32_t durationInMillis = 1000 * 60
+				* (uint32_t) esloSettings[Set_EEGDuration];
 		if (durationInMillis > 0) {
 			// reinstate EEG settings
 			esloSettings[Set_EEG1] = esloSettingsSleep[Set_EEG1];
@@ -1444,10 +1442,9 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 			updateEEGFromSettings(true);
 			Util_restartClock(&clkESLODuration, durationInMillis);
 		}
-		GPIO_write(LED_1, 0x00);
 		break;
+	}
 	case ES_DURATION:
-		GPIO_write(LED_0, 0x00);
 		esloSettings[Set_EEG1] = 0;
 		esloSettings[Set_EEG2] = 0;
 		esloSettings[Set_EEG3] = 0;
@@ -1630,15 +1627,17 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 			if (esloSettings[Set_Record] == ESLO_MODULE_OFF) {
 				esloSleep();
 			} else {
-				uint32_t dutyInMillis = 1000
+				// Matt: Starting periodic clock here causes hwi fail during debugging
+				uint32_t dutyInMillis = 1000 * 60 * 60
 						* (uint32_t) esloSettings[Set_EEGDuty]; // *60*60
 				if (dutyInMillis > 0) {
-					GPIO_write(LED_0, 0x00);
+					// schedule recording period/cycle
 					Util_rescheduleClock(&clkESLODuty, dutyInMillis);
 					Util_startClock(&clkESLODuty);
 				}
 			}
 
+			// Matt: this clock also causes eventual hwi fail, should place elsewhere?
 			isAdvLong = 1; // this is for AdvLong logic
 			if (esloSettings[Set_AdvLong] > 0x00) { // long
 				Util_startClock(&clkESLOAdvSleep);
@@ -1648,7 +1647,6 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 				GapAdv_enable(advHandleLongRange,
 						GAP_ADV_ENABLE_OPTIONS_USE_MAX, 0);
 			}
-
 		}
 		break;
 	}
@@ -1777,9 +1775,9 @@ static void SimplePeripheral_processCharValueChangeEvt(uint8_t paramId) {
 	case SIMPLEPROFILE_CHAR3:
 		len = SIMPLEPROFILE_CHAR3_LEN;
 		break;
-	case SIMPLEPROFILE_CHAR6:
-		len = SIMPLEPROFILE_CHAR6_LEN;
-		break;
+//	case SIMPLEPROFILE_CHAR6:
+//		len = SIMPLEPROFILE_CHAR6_LEN;
+//		break;
 	default:
 		break;
 	}
