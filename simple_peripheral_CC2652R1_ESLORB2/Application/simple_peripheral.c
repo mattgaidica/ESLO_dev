@@ -6,8 +6,6 @@
  https://dev.ti.com/tirex/content/simplelink_cc13x0_sdk_3_20_00_23/docs/proprietary-rf/proprietary-rf-users-guide/proprietary-rf-guide/debugging-index.html#deciphering-cpu-exceptions
  https://training.ti.com/sites/default/files/docs/TIRTOS_CCSDebugging.pdf
  ******************************************************************************/
-#include <ti/sysbios/family/arm/m3/Hwi.h>
-
 #include <stdint.h>
 #include <unistd.h>
 
@@ -65,13 +63,14 @@
 /*********************************************************************
  * CONSTANTS
  */
+#define DO_LED_DEBUG 1 // 0 or 1, true or false
 // How often to perform periodic event (in ms)
 #define ES_VITALS_EVT_PERIOD                 3000	// ms
 #define ES_PERIODIC_EVT_PERIOD				 60000	// ms
 #define ES_AXY_PERIOD				 		 1000	// ms
-#define ES_ADV_SLEEP_PERIOD_MIN				 30		// s
-#define ES_ADV_SLEEP_PERIOD_MAX				 60		// s
-#define ES_ADV_AWAKE_PERIOD					 2  	// s
+#define ES_ADV_SLEEP_TIMEOUT_MIN			 30		// s
+#define ES_ADV_SLEEP_TIMEOUT_MAX			 60		// s
+#define ES_ADV_AWAKE_PERIOD					 5  	// s
 
 // Task configuration
 #define SP_TASK_PRIORITY                     1
@@ -81,23 +80,21 @@
 #endif
 
 // Application events
-#define SP_STATE_CHANGE_EVT                  0
-#define SP_CHAR_CHANGE_EVT                   1
-#define SP_KEY_CHANGE_EVT                    2
-#define SP_ADV_EVT                           3
-#define SP_PAIR_STATE_EVT                    4
-#define SP_PASSCODE_EVT                      5
-#define SP_READ_RPA_EVT                      6
-#define SP_SEND_PARAM_UPDATE_EVT             7
-#define SP_CONN_EVT                          8
-#define ES_PERIODIC_EVT                      9
-#define ES_VITALS_EVT						 10
-#define ES_EEG_NOTIF						 11
-#define ES_XL_NOTIF							 12
-#define ES_AXY_EVT						     13
-#define ES_ADV_SLEEP					     14
-#define ES_DUTY								 15
-#define ES_DURATION							 16
+#define SP_CHAR_CHANGE_EVT                   0
+#define SP_ADV_EVT                           1
+#define SP_PAIR_STATE_EVT                    2
+#define SP_PASSCODE_EVT                      3
+#define SP_READ_RPA_EVT                      4
+#define SP_SEND_PARAM_UPDATE_EVT             5
+#define SP_CONN_EVT                          6
+#define ES_PERIODIC_EVT                      7
+#define ES_VITALS_EVT						 8
+#define ES_EEG_NOTIF						 9
+#define ES_XL_NOTIF							 10
+#define ES_AXY_EVT						     11
+#define ES_ADV_SLEEP					     12
+#define ES_REC_PERIOD 						 13
+#define ES_REC_DURATION						 14
 
 // Internal Events for RTOS application
 #define SP_ICALL_EVT                         ICALL_MSG_EVENT_ID // Event_Id_31
@@ -235,8 +232,8 @@ static Queue_Handle appMsgQueueHandle;
 // Clock instance for internal periodic events. Only one is needed since
 // GattServApp will handle notifying all connected GATT clients
 // Clock instance for RPA read events.
-//static Clock_Struct clkRpaRead;
-//spClockEventData_t argRpaRead = { .event = SP_READ_RPA_EVT };
+static Clock_Struct clkRpaRead;
+spClockEventData_t argRpaRead = { .event = SP_READ_RPA_EVT };
 
 // Per-handle connection info
 static spConnRec_t connList[MAX_NUM_BLE_CONNS];
@@ -356,14 +353,14 @@ uint8_t isAdvLong = 0;
 static Clock_Struct clkNotifyVitals;
 spClockEventData_t argESLOVitals = { .event = ES_VITALS_EVT };
 
-static Clock_Struct clkESLODuration;
-spClockEventData_t argESLODuration = { .event = ES_DURATION };
+static Clock_Struct clkESLORecDuration;
+spClockEventData_t argESLORecDuration = { .event = ES_REC_DURATION };
 
-static Clock_Struct clkESLODuty;
-spClockEventData_t argESLODuty = { .event = ES_DUTY };
+static Clock_Struct clkESLORecPeriod;
+spClockEventData_t argESLORecPeriod = { .event = ES_REC_PERIOD };
 
-static uint8_t esloSettings[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
-static uint8_t esloSettingsSleep[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
+uint8_t esloSettings[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
+uint8_t esloSettingsSleep[SIMPLEPROFILE_CHAR3_LEN] = { 0 };
 
 bool isPaired = false;
 
@@ -402,8 +399,8 @@ uint8_t iXL = 0;
 /* NAND Vars */
 uint8_t ret;
 uint16_t devId;
-static uint8_t esloBuffer[PAGE_DATA_SIZE]; // used for writing
-static uint8_t readBuf[PAGE_SIZE]; // 2176, always allocate full page size
+uint8_t esloBuffer[PAGE_DATA_SIZE]; // used for writing
+uint8_t readBuf[PAGE_SIZE]; // 2176, always allocate full page size
 uint32_t packet;
 uAddrType esloAddr, esloExportBlock;
 
@@ -429,16 +426,6 @@ NVS_Handle nvsHandle;
 NVS_Attrs regionAttrs;
 NVS_Params nvsParams;
 
-volatile uintptr_t *excPC = 0;
-volatile uintptr_t *excCaller = 0;
-void execHandlerHook(Hwi_ExcContext *ctx) {
-	excPC = ctx->pc;     // Program counter where exception occurred
-	excCaller = ctx->lr; // Link Register when exception occurred
-
-	while (2)
-		;
-}
-
 static void advSleep() {
 	if (isAdvLong) { // wake-up, enable advertise for short period
 		Util_restartClock(&clkESLOAdvSleep, ES_ADV_AWAKE_PERIOD * 1000);
@@ -448,9 +435,9 @@ static void advSleep() {
 	} else {
 		// sleep rnd amt to avoid advertisement syncing
 		uint8_t rndSleep = (rand()
-				% (ES_ADV_SLEEP_PERIOD_MAX - ES_ADV_SLEEP_PERIOD_MIN + 1))
-				+ ES_ADV_SLEEP_PERIOD_MIN;
-		Util_restartClock(&clkESLOAdvSleep, rndSleep * 1000); // back to millis
+				% (ES_ADV_SLEEP_TIMEOUT_MAX - ES_ADV_SLEEP_TIMEOUT_MIN + 1))
+				+ ES_ADV_SLEEP_TIMEOUT_MIN;
+		Util_restartClock(&clkESLOAdvSleep, (uint32_t) rndSleep * 1000); // back to millis
 		GapAdv_disable(advHandleLongRange);
 		GapAdv_disable(advHandleLegacy);
 		isAdvLong = 1;
@@ -507,8 +494,8 @@ static void esloRecoverSession() {
 
 static void esloSetVersion() {
 	eslo_dt eslo;
-	esloVersion = GitCommit; // this is semi-static
-//	ESLO_GenerateVersion(&esloVersion, CONFIG_TRNG_1);
+//	esloVersion = GitCommit; // this is semi-static
+	ESLO_GenerateVersion(&esloVersion, CONFIG_TRNG_1);
 	eslo.type = Type_Version;
 	eslo.data = esloVersion;
 	ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
@@ -572,12 +559,12 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 		esloResetVersion();
 	}
 
-	if (esloSettings[Set_EEGDuty] != *(esloSettingsNew + Set_EEGDuty)) {
-		esloSettings[Set_EEGDuty] = *(esloSettingsNew + Set_EEGDuty);
+	if (esloSettings[Set_RecPeriod] != *(esloSettingsNew + Set_RecPeriod)) {
+		esloSettings[Set_RecPeriod] = *(esloSettingsNew + Set_RecPeriod);
 	}
 
-	if (esloSettings[Set_EEGDuration] != *(esloSettingsNew + Set_EEGDuration)) {
-		esloSettings[Set_EEGDuration] = *(esloSettingsNew + Set_EEGDuration);
+	if (esloSettings[Set_RecDuration] != *(esloSettingsNew + Set_RecDuration)) {
+		esloSettings[Set_RecDuration] = *(esloSettingsNew + Set_RecDuration);
 	}
 
 // this needs some logic: we will never write abstime=0 here
@@ -588,7 +575,9 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 		eslo.type = Type_AbsoluteTime;
 		eslo.data = absoluteTime;
 		ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
-		Util_restartClock(&clkESLOPeriodic, ES_PERIODIC_EVT_PERIOD);
+		// no need to record periodic anytime soon
+		Util_rescheduleClock(&clkESLOPeriodic, ES_PERIODIC_EVT_PERIOD,
+		ES_PERIODIC_EVT_PERIOD);
 	}
 
 	// can't happen when connected, see: GAP_LINK_TERMINATED_EVENT
@@ -660,6 +649,9 @@ static void eegDataHandler(void) {
 	eslo_dt eslo_eeg4;
 
 	if (USE_EEG(esloSettings) == ESLO_MODULE_ON) { // double check
+		if (DO_LED_DEBUG == 1) {
+			GPIO_write(LED_1, 0x01);
+		}
 		ADS_updateData(&status, &ch1, &ch2, &ch3, &ch4);
 
 		// catch potential issues
@@ -862,23 +854,26 @@ static uint8_t updateXlFromSettings(bool actOnInterrupt) {
 	bool enableInterrupt;
 
 	if (USE_AXY(esloSettings) == ESLO_MODULE_ON & xl_online) {
+		if (Util_isActive(&clkESLOAxy)) {
+			Util_stopClock(&clkESLOAxy);
+		}
 		switch (esloSettings[Set_AxyMode]) {
 		case 1:
 			lsm6dsox_xl_power_mode_set(&dev_ctx_xl,
 					LSM6DSOX_ULTRA_LOW_POWER_MD);
 			lsm6dsox_xl_data_rate_set(&dev_ctx_xl, LSM6DSOX_XL_ODR_1Hz6);
-			Util_rescheduleClock(&clkESLOAxy, 1000);
+			Util_rescheduleClock(&clkESLOAxy, 0, 1000);
 			break;
 		case 2:
 			lsm6dsox_xl_power_mode_set(&dev_ctx_xl,
 					LSM6DSOX_LOW_NORMAL_POWER_MD);
 			lsm6dsox_xl_data_rate_set(&dev_ctx_xl, LSM6DSOX_XL_ODR_12Hz5);
-			Util_rescheduleClock(&clkESLOAxy, 100);
+			Util_rescheduleClock(&clkESLOAxy, 0, 100);
 			break;
 		default:
 			break;
 		}
-		Util_startClock(&clkESLOAxy);
+		Util_startClock(&clkESLOAxy); // reschedule handles stop/start
 
 		enableInterrupt = true;
 		if (actOnInterrupt) {
@@ -1065,25 +1060,26 @@ static void SimplePeripheral_init(void) {
 	appMsgQueueHandle = Util_constructQueue(&appMsgQueue);
 
 // Create one-shot clock for internal periodic events.
-	Util_constructClock(&clkNotifyVitals, SimplePeripheral_clockHandler,
-	ES_VITALS_EVT_PERIOD, 0, false, (UArg) &argESLOVitals);
+	Util_constructClock(&clkNotifyVitals, SimplePeripheral_clockHandler, 0,
+	ES_VITALS_EVT_PERIOD, false, (UArg) &argESLOVitals);
 
-	Util_constructClock(&clkESLOPeriodic, SimplePeripheral_clockHandler,
-	ES_PERIODIC_EVT_PERIOD, 0, false, (UArg) &argESLOPeriodic);
+	Util_constructClock(&clkESLOPeriodic, SimplePeripheral_clockHandler, 0,
+	ES_PERIODIC_EVT_PERIOD, false, (UArg) &argESLOPeriodic);
 
-	Util_constructClock(&clkESLOAxy, SimplePeripheral_clockHandler,
-	ES_AXY_PERIOD, 0, false, (UArg) &argESLOAxy);
+	Util_constructClock(&clkESLOAxy, SimplePeripheral_clockHandler, 0,
+	ES_AXY_PERIOD, false, (UArg) &argESLOAxy);
 
 // don't turn on because advertising is enabled on startup below, turn on at conn. terminate
 	Util_constructClock(&clkESLOAdvSleep, SimplePeripheral_clockHandler,
-	ES_ADV_SLEEP_PERIOD_MIN, 0, false, (UArg) &argESLOAdvSleep);
+	ES_ADV_SLEEP_TIMEOUT_MIN * 1000, 0, false, (UArg) &argESLOAdvSleep);
 
-	// turn on later with updated values from ESLOSettings
-	Util_constructClock(&clkESLODuty, SimplePeripheral_clockHandler, 0, 0,
-	false, (UArg) &argESLODuty);
+//	 turn on later with updated values from ESLOSettings
+	Util_constructClock(&clkESLORecPeriod, SimplePeripheral_clockHandler, 0, 0,
+	false, (UArg) &argESLORecPeriod);
 
-	Util_constructClock(&clkESLODuration, SimplePeripheral_clockHandler, 0, 0,
-	false, (UArg) &argESLODuration);
+	Util_constructClock(&clkESLORecDuration, SimplePeripheral_clockHandler, 0,
+			0,
+			false, (UArg) &argESLORecDuration);
 
 // Set the Device Name characteristic in the GAP GATT Service
 // For more information, see the section in the User's Guide:
@@ -1430,21 +1426,32 @@ static void SimplePeripheral_processAppMsg(spEvt_t *pMsg) {
 	case ES_ADV_SLEEP:
 		advSleep();
 		break;
-	case ES_DUTY: {
-		uint32_t durationInMillis = 1000 * 60
-				* (uint32_t) esloSettings[Set_EEGDuration];
-		if (durationInMillis > 0) {
+	case ES_REC_PERIOD: {
+		uint32_t recDurationInMillis = 1000 * 60
+				* (uint32_t) esloSettings[Set_RecDuration];
+		if (DO_LED_DEBUG == 1) {
+			GPIO_write(LED_0, 0x00);
+			recDurationInMillis = 1000
+					* (uint32_t) esloSettings[Set_RecDuration];
+		}
+		if (recDurationInMillis > 0) {
 			// reinstate EEG settings
 			esloSettings[Set_EEG1] = esloSettingsSleep[Set_EEG1];
 			esloSettings[Set_EEG2] = esloSettingsSleep[Set_EEG2];
 			esloSettings[Set_EEG3] = esloSettingsSleep[Set_EEG3];
 			esloSettings[Set_EEG4] = esloSettingsSleep[Set_EEG4];
 			updateEEGFromSettings(true);
-			Util_restartClock(&clkESLODuration, durationInMillis);
+			Util_restartClock(&clkESLORecDuration, recDurationInMillis);
+		}
+		if (DO_LED_DEBUG == 1) {
+			GPIO_write(LED_0, 0x01);
 		}
 		break;
 	}
-	case ES_DURATION:
+	case ES_REC_DURATION:
+		if (DO_LED_DEBUG == 1) {
+			GPIO_write(LED_1, 0x00);
+		}
 		esloSettings[Set_EEG1] = 0;
 		esloSettings[Set_EEG2] = 0;
 		esloSettings[Set_EEG3] = 0;
@@ -1559,8 +1566,8 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 				SimplePeripheral_updateRPA();
 
 				// Create one-shot clock for RPA check event.
-//				Util_constructClock(&clkRpaRead, SimplePeripheral_clockHandler,
-//				READ_RPA_PERIOD, 0, true, (UArg) &argRpaRead);
+				Util_constructClock(&clkRpaRead, SimplePeripheral_clockHandler,
+				READ_RPA_PERIOD, 0, true, (UArg) &argRpaRead);
 			}
 		}
 
@@ -1576,9 +1583,9 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 //                     (uint16_t)numActive);
 
 		if (pPkt->hdr.status == SUCCESS) {
-			Util_stopClock(&clkESLOAdvSleep); // stop advSleep duty cycle
-			Util_stopClock(&clkESLODuty);
-			Util_stopClock(&clkESLODuration);
+			Util_stopClock(&clkESLOAdvSleep);
+			Util_stopClock(&clkESLORecPeriod);
+			Util_stopClock(&clkESLORecDuration);
 
 			// Add connection to list and start RSSI
 			SimplePeripheral_addConn(pPkt->connectionHandle);
@@ -1628,18 +1635,24 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 				esloSleep();
 			} else {
 				// Matt: Starting periodic clock here causes hwi fail during debugging
-				uint32_t dutyInMillis = 1000 * 60 * 60
-						* (uint32_t) esloSettings[Set_EEGDuty]; // *60*60
-				if (dutyInMillis > 0) {
+				uint32_t recPeriodMillis = 1000 * 60 * 60
+						* (uint32_t) esloSettings[Set_RecPeriod]; // *60*60
+				if (DO_LED_DEBUG == 1) {
+					recPeriodMillis = 1000
+							* (uint32_t) esloSettings[Set_RecPeriod];
+				}
+				if (recPeriodMillis > 0) {
 					// schedule recording period/cycle
-					Util_rescheduleClock(&clkESLODuty, dutyInMillis);
-					Util_startClock(&clkESLODuty);
+					Util_rescheduleClock(&clkESLORecPeriod, 0, recPeriodMillis); // timeout = 0
+					Util_startClock(&clkESLORecPeriod);
+				}
+				if (esloSettings[Set_RecPeriod] == 0 || esloSettings[Set_RecDuration] == 0) {
+					SimplePeripheral_enqueueMsg(ES_REC_DURATION, NULL); // turn off
 				}
 			}
 
-			// Matt: this clock also causes eventual hwi fail, should place elsewhere?
-			isAdvLong = 1; // this is for AdvLong logic
-			if (esloSettings[Set_AdvLong] > 0x00) { // long
+			isAdvLong = 0; // reset every disconnect
+			if (esloSettings[Set_AdvLong] > 0x00) { // long adv
 				Util_startClock(&clkESLOAdvSleep);
 			} else { // keep advertising on at full rate
 				GapAdv_enable(advHandleLegacy, GAP_ADV_ENABLE_OPTIONS_USE_MAX,
@@ -1775,9 +1788,9 @@ static void SimplePeripheral_processCharValueChangeEvt(uint8_t paramId) {
 	case SIMPLEPROFILE_CHAR3:
 		len = SIMPLEPROFILE_CHAR3_LEN;
 		break;
-//	case SIMPLEPROFILE_CHAR6:
-//		len = SIMPLEPROFILE_CHAR6_LEN;
-//		break;
+	case SIMPLEPROFILE_CHAR6:
+		len = SIMPLEPROFILE_CHAR6_LEN;
+		break;
 	default:
 		break;
 	}
@@ -1794,11 +1807,11 @@ static void SimplePeripheral_processCharValueChangeEvt(uint8_t paramId) {
 		ret = SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR3, pValue);
 		mapEsloSettings(pValue);
 		break;
-//	case SIMPLEPROFILE_CHAR6:
-//		ret = SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR6, pValue);
-//		memcpy(&esloExportBlock, pValue, sizeof(uint32_t));
+	case SIMPLEPROFILE_CHAR6:
+		ret = SimpleProfile_GetParameter(SIMPLEPROFILE_CHAR6, pValue);
+		memcpy(&esloExportBlock, pValue, sizeof(uint32_t));
 //		SimplePeripheral_enqueueMsg(ES_EXPORT_DATA, NULL);
-//		break;
+		break;
 	default:
 // should not reach here!
 		break;
@@ -1900,23 +1913,20 @@ static void SimplePeripheral_clockHandler(UArg arg) {
 	spClockEventData_t *pData = (spClockEventData_t*) arg;
 
 	if (pData->event == ES_PERIODIC_EVT) {
-		Util_startClock(&clkESLOPeriodic);
 		SimplePeripheral_enqueueMsg(ES_PERIODIC_EVT, NULL);
 	} else if (pData->event == ES_VITALS_EVT) {
-		Util_startClock(&clkNotifyVitals);
 		SimplePeripheral_enqueueMsg(ES_VITALS_EVT, NULL);
 	} else if (pData->event == ES_AXY_EVT) {
-		Util_startClock(&clkESLOAxy);
 		SimplePeripheral_enqueueMsg(ES_AXY_EVT, NULL);
-//	} else if (pData->event == SP_READ_RPA_EVT) {
-//		Util_startClock(&clkRpaRead);
-//		SimplePeripheral_enqueueMsg(SP_READ_RPA_EVT, NULL);
+	} else if (pData->event == SP_READ_RPA_EVT) {
+		Util_startClock(&clkRpaRead);
+		SimplePeripheral_enqueueMsg(SP_READ_RPA_EVT, NULL);
 	} else if (pData->event == ES_ADV_SLEEP) {
 		SimplePeripheral_enqueueMsg(ES_ADV_SLEEP, NULL);
-	} else if (pData->event == ES_DUTY) { // !! not sure if these need enqueue to run in app context
-		SimplePeripheral_enqueueMsg(ES_DUTY, NULL);
-	} else if (pData->event == ES_DURATION) {
-		SimplePeripheral_enqueueMsg(ES_DURATION, NULL);
+	} else if (pData->event == ES_REC_PERIOD) {
+		SimplePeripheral_enqueueMsg(ES_REC_PERIOD, NULL);
+	} else if (pData->event == ES_REC_DURATION) {
+		SimplePeripheral_enqueueMsg(ES_REC_DURATION, NULL);
 	} else if (pData->event == SP_SEND_PARAM_UPDATE_EVT) {
 		SimplePeripheral_enqueueMsg(SP_SEND_PARAM_UPDATE_EVT, pData);
 	}

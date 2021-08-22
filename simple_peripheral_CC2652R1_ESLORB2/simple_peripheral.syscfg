@@ -1,7 +1,7 @@
 /**
  * These arguments were used when this file was generated. They will be automatically applied on subsequent loads
  * via the GUI or CLI. Run CLI with '--help' for additional information on how to override these arguments.
- * @cliArgs --board "/ti/boards/CC26X2R1_LAUNCHXL" --product "simplelink_cc13x2_26x2_sdk@5.20.00.52"
+ * @cliArgs --board "/ti/boards/CC26X2R1_LAUNCHXL" --product "simplelink_cc13x2_26x2_sdk@4.40.04.04"
  * @versions {"tool":"1.9.0+2015","templates":null}
  */
 
@@ -45,6 +45,7 @@ const SPI1        = SPI.addInstance();
 const SPI2        = SPI.addInstance();
 const TRNG        = scripting.addModule("/ti/drivers/TRNG");
 const TRNG1       = TRNG.addInstance();
+const TRNG2       = TRNG.addInstance();
 const UART        = scripting.addModule("/ti/drivers/UART", {}, false);
 const UART1       = UART.addInstance();
 const Watchdog    = scripting.addModule("/ti/drivers/Watchdog", {}, false);
@@ -69,8 +70,8 @@ ble.connUpdateParamsPeripheral.reqMinConnInt              = 15;
 ble.connUpdateParamsPeripheral.reqMaxConnInt              = 30;
 ble.advSet1.$name                                         = "ti_ble5stack_broadcaster_advertisement_set0";
 ble.advSet1.advParam1.$name                               = "ti_ble5stack_broadcaster_advertisement_params0";
-ble.advSet1.advParam1.primIntMax                          = 1000;
-ble.advSet1.advParam1.primIntMin                          = 1000;
+ble.advSet1.advParam1.primIntMin                          = 2000;
+ble.advSet1.advParam1.primIntMax                          = 2000;
 ble.advSet1.advData1.$name                                = "ti_ble5stack_broadcaster_advertisement_data0";
 ble.advSet1.advData1.GAP_ADTYPE_FLAGS                     = true;
 ble.advSet1.advData1.advertisingFlags                     = ["GAP_ADTYPE_FLAGS_BREDR_NOT_SUPPORTED","GAP_ADTYPE_FLAGS_GENERAL"];
@@ -89,8 +90,8 @@ ble.advSet1.scanRes1.completeLocalName                    = "ESLO SUR";
 ble.advSet2.$name                                         = "ti_ble5stack_broadcaster_advertisement_set1";
 ble.advSet2.advParam2.$name                               = "ti_ble5stack_broadcaster_advertisement_params1";
 ble.advSet2.advParam2.advType                             = "extended";
-ble.advSet2.advParam2.primIntMin                          = 1000;
-ble.advSet2.advParam2.primIntMax                          = 1000;
+ble.advSet2.advParam2.primIntMin                          = 2000;
+ble.advSet2.advParam2.primIntMax                          = 2000;
 ble.advSet2.advData2.$name                                = "ti_ble5stack_broadcaster_advertisement_data2";
 ble.advSet2.advData2.GAP_ADTYPE_FLAGS                     = true;
 ble.advSet2.advData2.advertisingFlags                     = ["GAP_ADTYPE_FLAGS_BREDR_NOT_SUPPORTED","GAP_ADTYPE_FLAGS_GENERAL"];
@@ -224,6 +225,8 @@ SPI2.mosiPinInstance.$name = "CONFIG_PIN_7";
 SPI2.mosiPinInstance.mode  = "Input";
 
 TRNG1.$name = "CONFIG_TRNG_0";
+
+TRNG2.$name = "CONFIG_TRNG_1";
 
 UART1.$name               = "CONFIG_UART_0";
 UART1.$hardware           = system.deviceData.board.components.XDS110UART;
