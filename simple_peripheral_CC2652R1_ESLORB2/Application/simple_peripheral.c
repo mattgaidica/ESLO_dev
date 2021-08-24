@@ -988,7 +988,6 @@ static void ESLO_startup() {
 
 	updateXlFromSettings(true); // turn on interrupt here
 	eegInterrupt(enableEEGInterrupt); // turn on now
-//	Util_startClock(&clkESLOPeriodic);
 
 	GPIO_write(LED_0, 0x00);
 	GPIO_write(LED_1, 0x00);
