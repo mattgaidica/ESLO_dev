@@ -1,4 +1,5 @@
-.jxbrowser-data
+.jxbrowser.userdata/**
+.jxbrowser-data/**
 .metadata
 .xdchelp
 */FlashRom_StackLibrary

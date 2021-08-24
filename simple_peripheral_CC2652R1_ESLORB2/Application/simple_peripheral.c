@@ -49,7 +49,6 @@
 #include "ti_ble_config.h"
 #include <ESLO.h>
 
-#define PTM_MODE 1 // disables NPI below
 #ifdef PTM_MODE
 #include "npi_task.h"               // To allow RX event registration
 #include "npi_ble.h"                // To enable transmission of messages to UART
@@ -63,14 +62,14 @@
 /*********************************************************************
  * CONSTANTS
  */
-#define DO_LED_DEBUG 1 // 0 or 1, true or false
+#define DO_LED_DEBUG 0 // 0 or 1, true or false
 // How often to perform periodic event (in ms)
 #define ES_VITALS_EVT_PERIOD                 3000	// ms
 #define ES_PERIODIC_EVT_PERIOD				 60000	// ms
 #define ES_AXY_PERIOD				 		 1000	// ms
 #define ES_ADV_SLEEP_TIMEOUT_MIN			 30		// s
 #define ES_ADV_SLEEP_TIMEOUT_MAX			 60		// s
-#define ES_ADV_AWAKE_PERIOD					 5  	// s
+#define ES_ADV_AWAKE_PERIOD					 3  	// s
 
 // Task configuration
 #define SP_TASK_PRIORITY                     1
@@ -576,8 +575,8 @@ static void mapEsloSettings(uint8_t *esloSettingsNew) {
 		eslo.data = absoluteTime;
 		ret = ESLO_Write(&esloAddr, esloBuffer, esloVersion, eslo);
 		// no need to record periodic anytime soon
-		Util_rescheduleClock(&clkESLOPeriodic, ES_PERIODIC_EVT_PERIOD,
-		ES_PERIODIC_EVT_PERIOD);
+//		Util_rescheduleClock(&clkESLOPeriodic, ES_PERIODIC_EVT_PERIOD,
+//		ES_PERIODIC_EVT_PERIOD);
 	}
 
 	// can't happen when connected, see: GAP_LINK_TERMINATED_EVENT
@@ -925,7 +924,7 @@ static void ESLO_error() {
 	}
 }
 
-static void ESLO_startup(void) {
+static void ESLO_startup() {
 	GPIO_init();
 	SPI_init();
 	ADC_init();
@@ -989,7 +988,7 @@ static void ESLO_startup(void) {
 
 	updateXlFromSettings(true); // turn on interrupt here
 	eegInterrupt(enableEEGInterrupt); // turn on now
-	Util_startClock(&clkESLOPeriodic);
+//	Util_startClock(&clkESLOPeriodic);
 
 	GPIO_write(LED_0, 0x00);
 	GPIO_write(LED_1, 0x00);
@@ -1064,7 +1063,7 @@ static void SimplePeripheral_init(void) {
 	ES_VITALS_EVT_PERIOD, false, (UArg) &argESLOVitals);
 
 	Util_constructClock(&clkESLOPeriodic, SimplePeripheral_clockHandler, 0,
-	ES_PERIODIC_EVT_PERIOD, false, (UArg) &argESLOPeriodic);
+	ES_PERIODIC_EVT_PERIOD, true, (UArg) &argESLOPeriodic);
 
 	Util_constructClock(&clkESLOAxy, SimplePeripheral_clockHandler, 0,
 	ES_AXY_PERIOD, false, (UArg) &argESLOAxy);
@@ -1114,7 +1113,7 @@ static void SimplePeripheral_init(void) {
 		uint8_t charValue4[SIMPLEPROFILE_CHAR4_LEN] = { 0 };
 		uint8_t charValue5[SIMPLEPROFILE_CHAR5_LEN] = { 0 };
 		uint8_t charValue6[SIMPLEPROFILE_CHAR6_LEN] = { 0 };
-		uint8_t charValue7[SIMPLEPROFILE_CHAR7_LEN] = { 0 };
+//		uint8_t charValue7[SIMPLEPROFILE_CHAR7_LEN] = { 0 };
 
 		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR1,
 		SIMPLEPROFILE_CHAR1_LEN, charValue1);
@@ -1128,8 +1127,8 @@ static void SimplePeripheral_init(void) {
 		SIMPLEPROFILE_CHAR5_LEN, charValue5);
 		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR6,
 		SIMPLEPROFILE_CHAR6_LEN, charValue6);
-		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR7,
-		SIMPLEPROFILE_CHAR7_LEN, charValue7);
+//		SimpleProfile_SetParameter(SIMPLEPROFILE_CHAR7,
+//		SIMPLEPROFILE_CHAR7_LEN, charValue7);
 	}
 
 // Register callback with SimpleGATTprofile
@@ -1646,7 +1645,8 @@ static void SimplePeripheral_processGapMessage(gapEventHdr_t *pMsg) {
 					Util_rescheduleClock(&clkESLORecPeriod, 0, recPeriodMillis); // timeout = 0
 					Util_startClock(&clkESLORecPeriod);
 				}
-				if (esloSettings[Set_RecPeriod] == 0 || esloSettings[Set_RecDuration] == 0) {
+				if (esloSettings[Set_RecPeriod] == 0
+						|| esloSettings[Set_RecDuration] == 0) {
 					SimplePeripheral_enqueueMsg(ES_REC_DURATION, NULL); // turn off
 				}
 			}
